@@ -1,0 +1,14 @@
+% title("status overview");
+% for my $sname (@{$rendersections->{_order}}) { 
+<h2><%= $sname %></h2>
+% for my $entity (@{$rendersections->{$sname}}) {
+% if ($entity->{error}) {
+<span>Error: <%= $entity->{error} %></span>
+% }
+
+<a class="nodeco" href="<%= $entity->{detailurl} %>">
+<img class="nodeco" width="<%= $entity->{x} %>" height="<%= $entity->{y} %>" src="<%= $entity->{imgurl} %>">
+</a>
+
+% } }
+

@@ -1,0 +1,8 @@
+#!/usr/bin/perl
+use strict;
+use Mojolicious::Commands;
+use FindBin;
+use lib "$FindBin::Bin/../lib";
+
+# Start command line interface for application
+Mojolicious::Commands->start_app('Mrrd');

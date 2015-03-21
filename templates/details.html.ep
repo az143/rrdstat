@@ -1,0 +1,26 @@
+% title($title);
+<%== link_to("Back to the overview" => url_for('home') ) %>
+<h2><%= $title %></h2>
+
+
+<div style="float: left; padding-right: 10px;">		
+<strong>Daily Graph (5m Average)</strong><br>
+<img class="nodeco" src="<%= $day %>">
+</div>
+
+<div style="float: left;">		
+<strong>Weekly Graph (30m Average)</strong><br>
+<img class="nodeco" src="<%= $week %>">
+</div>
+
+<div style="float: left;  padding-right: 10px; padding-top: 20px;">	
+<strong>Monthly Graph (2hr Average)</strong><br>  
+<img class="nodeco" src="<%= $month %>">
+</div>
+
+<div style="float: left; padding-top: 20px;">		
+<strong>Yearly Graph (1d Average)</strong><br>
+<img class="nodeco" src="<%= $year %>">
+</div>
+<div style="clear: both"></div>
+

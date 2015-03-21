@@ -1,0 +1,91 @@
+#!/usr/bin/perl
+# fetch bom solar exposure data from closest station and update rrd database
+use strict;
+use LWP::UserAgent;
+use File::Temp qw(:mktemp);
+use File::Slurp;
+use POSIX qw(mktime);
+use IO::Socket::INET;
+
+my $dn=mkdtemp("/tmp/solarXXXXXXX");
+chdir($dn);
+
+my $ua=LWP::UserAgent->new;
+$ua->timeout(60);
+$ua->env_proxy;
+
+my $stationcode = $ARGV[0];
+die "usage: $0 <BOM station code>\n" if (!$stationcode);
+
+my $prod="IDCJAC0016";
+my $pcode="${prod}_${stationcode}_".(1900+(localtime(time))[5]);
+
+my $rrdhost="localhost";
+my $rrdport="13100";
+my $rrdname="heffalump-sun_exposure.rrd";
+
+# bom site needs to be primed to gen that zipfile
+my $r=$ua->get("http://www.bom.gov.au/jsp/ncc/cdio/weatherData/av?p_nccObsCode=193&p_display_type=dailyDataFile&p_startYear=&p_c=&p_stn_num=".$stationcode);
+die "priming fetch failed: ".$r->status_line."\n" if (!$r->is_success);
+
+$r=$ua->get("http://www.bom.gov.au/tmp/cdio/$pcode.zip");
+die "fetch failed: ".$r->status_line."\n" if (!$r->is_success);
+
+write_file("x.zip",$r->content);
+system("/usr/bin/unzip","-qqj","x.zip","*.csv");
+
+die "fetched zip file doesn't contain correct data file!\n" if (!-f "${pcode}_Data.csv");
+my @solar=read_file("${pcode}_Data.csv");
+
+my %readings;
+for my $obs (@solar)
+{
+    next if ($obs!~/^$prod,$stationcode/);
+    $obs=~s/\r?\n$//;		# dos file, and chomp doesn't cope
+    my (undef,undef,$year,$month,$day,$mjoule)=split(/,/,$obs);
+    my $kwhm2=sprintf("%.2f",$mjoule/3.6);
+
+    my $daystart=mktime(0,0,0,$day,$month-1,$year-1900);
+    $readings{$daystart}=$kwhm2;
+    $readings{$daystart+86399}=$kwhm2;
+}
+
+my $socket=IO::Socket::INET->new(PeerAddr=>$rrdhost,
+				 PeerPort=>$rrdport,
+				 Proto=>"tcp",
+				 Timeout=>10);
+my $response;
+while ($socket && !$socket->atmark)
+{
+    $response=<$socket>;
+}
+
+# neuestes reading war wann?
+print $socket "lastupdate /$rrdname\n";
+undef $response;
+my $lastupdate=0;
+while ($response !~ /^(ERROR|OK)/)
+{
+    $response=<$socket>;
+    $response=~/^(\d+):/ && ($lastupdate=$1);
+}
+
+for my $k (sort { $a <=> $b } (grep $_ > $lastupdate, keys %readings))
+{
+    my @cmd=("update","/$rrdname","$k:$readings{$k}");
+#    print "saving: $k ".localtime($k)." ".$readings{$k}."\n";
+
+    print $socket join(" ",@cmd)."\n";
+    $response=<$socket>;
+    chomp $response;
+
+    die "update command failed: \"$response\"\n" if ($response!~/^OK/);
+}
+close($socket);
+
+unlink("${pcode}_Data.csv","x.zip");
+chdir("/");
+rmdir($dn); 
+
+exit 0;
+
