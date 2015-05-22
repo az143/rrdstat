@@ -150,7 +150,8 @@ if (my $x=$cf->{sources}->{internode})
     my $host="customer-webtools-api.internode.on.net";
     my $url="https://$host/api/v1.5/".$x->{serviceid}."/usage";
 
-    my $ua=LWP::UserAgent->new(ssl_opts => { verify_hostname => 0 });
+    # can't be bothered with ca's at this point
+    my $ua=LWP::UserAgent->new(ssl_opts => { verify_hostname => 0,  SSL_verify_mode => 0 });
     $ua->timeout(10);
     $ua->credentials("$host:443","internode-api",$x->{username},$x->{pwd});
     my $r=$ua->get($url);
