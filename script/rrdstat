@@ -150,86 +150,88 @@ if (my $x=$cf->{sources}->{dsl})
 			   Prompt=>'/[a-zA-Z0-9_ -]+> $/');
     $t->errmode("return");
     # $t->dump_log(*STDOUT);
-    
-    if (!$t->open($x->{host}))
-    { 
-	warn "can't connect to ".$x->{host}.": ".$t->errmsg()."\n";
-	last;
-    }
-    if (!$t->waitfor('/Password:\s+/') or !$t->print($x->{pwd}))
-    {
-	warn "can't login on host ".$x->{host}.": ".$t->errmsg()."\n";
-	last;
-    }
-    if (!$t->waitfor($t->prompt))
-    {
-	warn "no prompt seen on ".$x->{host}.": ".$t->errmsg()."\n";
-	last;
-    }
-    
-    my @lineinfo = $t->cmd("wan adsl chandata") # for speed
-	or warn "chandata failed: ".$t->errmsg()."\n";
-    
-    push @lineinfo, $t->cmd("wan adsl linedata near") # for snr and margin
-	or warn "linedata near failed: ".$t->errmsg()."\n";
 
-    push @lineinfo, $t->cmd("wan adsl linedata far")
-	or warn "linedata far failed: ".$t->errmsg()."\n";
+    {
+    	if (!$t->open($x->{host}))
+	{ 
+	    warn "can't connect to ".$x->{host}.": ".$t->errmsg()."\n";
+	    last;
+	}
+	if (!$t->waitfor('/Password:\s+/') or !$t->print($x->{pwd}))
+	{
+	    warn "can't login on host ".$x->{host}.": ".$t->errmsg()."\n";
+	    last;
+	}
+	if (!$t->waitfor($t->prompt))
+	{
+	    warn "no prompt seen on ".$x->{host}.": ".$t->errmsg()."\n";
+	    last;
+	}
 	
-    push @lineinfo, $t->cmd("wan adsl perfdata") # for error seconds and uptime
-	or warn "perfdata failed: ".$t->errmsg()."\n";
-    push @lineinfo, $t->cmd("wan hwsar disp") # for in and out pkts
-	or warn "hwsar failed: ".$t->errmsg()."\n";
-
-    my ($resets,$errorsecs,$syncdown,$syncup,$margdn,$margup,$up,$down,$uptime);
-    for my $l (@lineinfo)
-    {
-	if ($l =~ /^(far|near)-end (fast|interleaved) channel bit rate: (\d+) kbps$/)
-	{
-	    my ($which, $val) = ($1, $3);
-	    next if ($val eq "0"); # modem shows both fast and interleaved
-	    my $target = $which eq "far"? \$syncup: \$syncdown;
-	    $$target = $val;
-	}
-	elsif ($l =~ /^noise margin (downstream|upstream): (\d+\.\d+) db$/)
-	{
-	    my ($which, $val) = ($1, $2);
-	    my $target = $which eq "downstream"? \$margdn: \$margup;
-	    $$target = $val;
-	}
-	elsif ($l =~ /^ADSL uptime\s+(\d+):(\d+):(\d+)$/)
-	{
-	    $uptime = $1 * 3600 + $2 * 60 + $3;
-	}
-	elsif ($l =~ /Error second in 15min\s+:\s+(\d+)$/)
-	{
-	    $errorsecs = $1;
-	}
-	elsif ($l =~ /^(in|out)Pkts\s+=\s+(0x[0-9a-f]+),/)
-	{
-	    my ($which, $val) = ($1, $2);
-	    my $target = $which eq "in"? \$down: \$up;
-	    $$target = hex($val);
-	}
-    }
+	my @lineinfo = $t->cmd("wan adsl chandata") # for speed
+	    or warn "chandata failed: ".$t->errmsg()."\n";
 	
-    my $rollover=$uptime<=300?undef:4294967295; # make sure we don't add 4g if the box just rebooted
-
-    $t->close;
-    $saved->{dsl}||={};
-    if ($opts{w})
-    {
-	printcreate("dsl","resets:errorsecs:downsync:upsync:downmargin:upmargin:down:up",
-		    qw(GAUGE GAUGE GAUGE GAUGE GAUGE:100 GAUGE:100 ABSOLUTE ABSOLUTE))
-    }
-    else 
-    {
-	# sync is in kbps, byte/s is *1000/8
-	submit("dsl",
-	       "resets:errorsecs:downsync:upsync:downmargin:upmargin:down:up",
-	       $resets,$errorsecs,$syncdown*125,$syncup*125,$margdn,$margup,
+	push @lineinfo, $t->cmd("wan adsl linedata near") # for snr and margin
+	    or warn "linedata near failed: ".$t->errmsg()."\n";
+	
+	push @lineinfo, $t->cmd("wan adsl linedata far")
+	    or warn "linedata far failed: ".$t->errmsg()."\n";
+	
+	push @lineinfo, $t->cmd("wan adsl perfdata") # for error seconds and uptime
+	    or warn "perfdata failed: ".$t->errmsg()."\n";
+	push @lineinfo, $t->cmd("wan hwsar disp") # for in and out pkts
+	    or warn "hwsar failed: ".$t->errmsg()."\n";
+	
+	my ($resets,$errorsecs,$syncdown,$syncup,$margdn,$margup,$up,$down,$uptime);
+	for my $l (@lineinfo)
+	{
+	    if ($l =~ /^(far|near)-end (fast|interleaved) channel bit rate: (\d+) kbps$/)
+	    {
+		my ($which, $val) = ($1, $3);
+		next if ($val eq "0"); # modem shows both fast and interleaved
+		my $target = $which eq "far"? \$syncup: \$syncdown;
+		$$target = $val;
+	    }
+	    elsif ($l =~ /^noise margin (downstream|upstream): (\d+\.\d+) db$/)
+	    {
+		my ($which, $val) = ($1, $2);
+		my $target = $which eq "downstream"? \$margdn: \$margup;
+		$$target = $val;
+	    }
+	    elsif ($l =~ /^ADSL uptime\s+(\d+):(\d+):(\d+)$/)
+	    {
+		$uptime = $1 * 3600 + $2 * 60 + $3;
+	    }
+	    elsif ($l =~ /Error second in 15min\s+:\s+(\d+)$/)
+	    {
+		$errorsecs = $1;
+	    }
+	    elsif ($l =~ /^(in|out)Pkts\s+=\s+(0x[0-9a-f]+),/)
+	    {
+		my ($which, $val) = ($1, $2);
+		my $target = $which eq "in"? \$down: \$up;
+		$$target = hex($val);
+	    }
+	}
+	
+	my $rollover=$uptime<=300?undef:4294967295; # make sure we don't add 4g if the box just rebooted
+	
+	$t->close;
+	$saved->{dsl}||={};
+	if ($opts{w})
+	{
+	    printcreate("dsl","resets:errorsecs:downsync:upsync:downmargin:upmargin:down:up",
+			qw(GAUGE GAUGE GAUGE GAUGE GAUGE:100 GAUGE:100 ABSOLUTE ABSOLUTE))
+	}
+	else 
+	{
+	    # sync is in kbps, byte/s is *1000/8
+	    submit("dsl",
+		   "resets:errorsecs:downsync:upsync:downmargin:upmargin:down:up",
+		   $resets,$errorsecs,$syncdown*125,$syncup*125,$margdn,$margup,
 	       updatedelta($saved->{dsl},'down',$down,$rollover),
-	       updatedelta($saved->{dsl},'up',$up,$rollover));
+		   updatedelta($saved->{dsl},'up',$up,$rollover));
+	}
     }
 }
 
