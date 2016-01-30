@@ -2,6 +2,8 @@
 use strict;
 use Mojolicious::Commands;
 use FindBin;
+FindBin->again;									# crucial for mod_perl
+
 use lib "$FindBin::Bin/../lib";
 
 # Start command line interface for application
