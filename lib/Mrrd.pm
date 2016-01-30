@@ -5,8 +5,6 @@
 # plus statics as needed for the images
 package Mrrd;
 use Mojo::Base 'Mojolicious';
-use FindBin;
-use lib "$FindBin::Bin";
 
 # called once on startup
 sub startup 
