@@ -1,10 +1,9 @@
 #!/usr/bin/perl
 use strict;
 use Mojolicious::Commands;
-use FindBin;
-FindBin->again;									# crucial for mod_perl
 
-use lib "$FindBin::Bin/../lib";
+# findbin makes plack misbehave under mod_perl, even with ->again.
+use lib "$ENV{MOJO_HOME}/lib";	
 
 # Start command line interface for application
 Mojolicious::Commands->start_app('Mrrd');
