@@ -30,6 +30,12 @@ sub startup
     # overview and details, that's all
     $r->get('/')->to(controller=>"Dinky",action=>"overview")->name("home");
     $r->get("/:object/:type/")->to(controller=>"Dinky",action=>"details");
+
+		# plus a heartbeat endpoint
+		$r->options("/heartbeat")->to(controller=>"Dinky", action=>"heartbeat");
+
+		# and nothing else
+		$r->any("*unwanted" => sub { shift->render(status=>405, text => "No."); });
 }
 
 1;
@@ -38,6 +44,13 @@ sub startup
 package Mrrd::Dinky;
 use Mojo::Base qw(Mojolicious::Controller);
 use rrdimage;
+
+sub heartbeat
+{
+	my ($self) = @_;
+	$self->render(status => 200, data => time);
+	return;
+}
 
 
 # create the overview page
