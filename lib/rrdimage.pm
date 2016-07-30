@@ -29,19 +29,20 @@ sub rrdimage_update
     {
 	# type given as arg, tag: which rrdfile to use
 	my %type2tag=("cpu"=>"cpustats",
-		      "load"=>"cpustats",
-		      "mem"=>"memory",
-		      "diskpc"=>"disks",
-		      "sensors"=>"sensors",
-		      "inet"=>"dsl",
-		      "linestatus"=>"dsl",
-		      "internode"=>"internode",
-		      "if"=>"interfaces",
-		      "nfacct"=>"nfacct",
-		      "news"=>"newslog",
-		      "mail"=>"maillog",
-		      "mailrej"=>"maillog",
-		      "solar"=>"growatt",
+								"load"=>"cpustats",
+								"mem"=>"memory",
+								"diskpc"=>"disks",
+								"sensors"=>"sensors",
+								"inet"=>"dsl",
+								"linestatus"=>"dsl",
+								"internode"=>"internode",
+								"internodeflat"=>"internode",
+								"if"=>"interfaces",
+								"nfacct"=>"nfacct",
+								"news"=>"newslog",
+								"mail"=>"maillog",
+								"mailrej"=>"maillog",
+								"solar"=>"growatt",
 	    );
 	
 	my $rrdf="$args{rrddir}/$args{name}-".$type2tag{$args{type}}.".rrd";
@@ -376,9 +377,10 @@ LINE:axis#808080:
 	}
 	elsif ($args{type} eq "internode")
 	{
-	    push @rrdargs,(qw(-v bytes -l 0),
-			   (map { "DEF:$_=$rrdf:$_:AVERAGE" } (qw(quota traffic))),
-			   split(/\s*\n\s*/,'CDEF:remain=quota,traffic,-
+		# internode normal
+		push @rrdargs,(qw(-v bytes -l 0),
+									 (map { "DEF:$_=$rrdf:$_:AVERAGE" } (qw(quota traffic))),
+									 split(/\s*\n\s*/,'CDEF:remain=quota,traffic,-
     CDEF:remainpc=1,traffic,quota,/,-,100,*
     LINE1:quota#ff4500:quota
     GPRINT:quota:LAST:%7.2lf%s
@@ -387,6 +389,16 @@ LINE:axis#808080:
     GPRINT:traffic:LAST: %7.2lf%s
     COMMENT:\n
     GPRINT:remainpc:LAST:remaining\:   %3.0lf%%
+    COMMENT:\n'));
+	}
+	elsif  ($args{type} eq "internodeflat")
+	{
+		# flat: only traffic, quota is present but 0
+
+		push @rrdargs,(qw(-v bytes -l 0),
+									 "DEF:traffic=$rrdf:traffic:AVERAGE",
+									 split(/\s*\n\s*/,'AREA:traffic#1e90ff:used
+    GPRINT:traffic:LAST: %7.2lf%s
     COMMENT:\n'));
 	}
 	elsif ($args{type} eq "if")
