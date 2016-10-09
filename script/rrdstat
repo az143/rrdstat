@@ -1,5 +1,4 @@
 #!/usr/bin/perl
-# $Id: rrdstat,v 1.31 2014/04/05 02:34:49 az Exp $
 # bigstat turned rrdtool 
 use strict;
 use Getopt::Std;
@@ -551,37 +550,41 @@ if (my $x=$cf->{sources}->{interfaces})
 # maillog: /path/to/logfile
 if (my $logfile=$cf->{sources}->{maillog})
 {
-    $saved->{maillog}||="0 0";
-    my ($spam,$badspam,$virus,$in,$out,$early,$tempfail)=(0) x 7;
-    for (logtail($logfile,\$saved->{maillog}))
-    {
-	if (/(sm-mta|sendmail)\[\d+\]: .+, relay=([^,]+), .+, stat=sent/i)
+	$saved->{maillog}||="0 0";
+	my ($spam,$badspam,$virus,$in,$out,$early,$tempfail)=(0) x 7;
+	for (logtail($logfile,\$saved->{maillog}))
 	{
+		if (/(sm-mta|sendmail)\[\d+\]: .+, relay=([^,]+), .+, stat=sent/i)
+		{
 	    lc($2)=~/^localhost/?$in++:$out++;
-	}
-	elsif (/sm-mta\[\d+\]: .+, stat=(virus|too much spam)/i)
-	{
-	    lc($1) eq "virus"?$virus++:$badspam++;
-	}
-	elsif (/mimedefang\[\d+\]: [a-z0-9]+: spamminess:/i)
-	{
+		}
+		elsif (/mimedefang\[\d+\]: [a-zA-Z0-9]+: (virus|veryspammy)/i)
+		{
+	    lc($1) eq "virus"? $virus++: $badspam++;
+		}
+		elsif (/mimedefang\[\d+\]: [a-z0-9]+: spamminess:/i)
+		{
 	    $spam++;
-	}
-	elsif (/mimedefang\[\d+\]: filter_.+ (rejected|tempfailed)/i)
-	{
+		}
+		elsif (/mimedefang\[\d+\]: filter_.+ (rejected|tempfailed)/i)
+		{
 	    lc($1) eq "rejected"?$early++:$tempfail++;
+		}
+		elsif (/ruleset=check_\S+,/)
+		{
+			++$early;
+		}
 	}
-    }
-    if ($opts{w})
-    {
-	printcreate("maillog","lightspam:badspam:virus:early:tempfail:in:out",
-		    ("ABSOLUTE") x 7);
-    }
-    else
-    {
-	submit("maillog","lightspam:badspam:virus:early:tempfail:in:out",
-	       $spam-$badspam,$badspam,$virus,$early,$tempfail,$in,$out);
-    }
+	if ($opts{w})
+	{
+		printcreate("maillog","lightspam:badspam:virus:early:tempfail:in:out",
+								("ABSOLUTE") x 7);
+	}
+	else
+	{
+		submit("maillog","lightspam:badspam:virus:early:tempfail:in:out",
+					 $spam-$badspam,$badspam,$virus,$early,$tempfail,$in,$out);
+	}
 }
 
 # newslog: /path/to/newslog/news
