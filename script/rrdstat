@@ -227,7 +227,7 @@ if (my $x=$cf->{sources}->{dsl})
 	    # sync is in kbps
 	    submit("dsl",
 		   "resets:errorsecs:downsync:upsync:downmargin:upmargin:down:up",
-		   $resets,$errorsecs,$syncdown,$syncup,$margdn,$margup,
+		   $resets,$errorsecs,$syncdown*1000,$syncup*1000,$margdn,$margup,
 	       updatedelta($saved->{dsl},'down',$down,$rollover),
 		   updatedelta($saved->{dsl},'up',$up,$rollover));
 	}
