@@ -129,10 +129,10 @@ if (my $x=$cf->{sources}->{speedtouch})
 	}
 	else 
 	{
-	    # sync is in kbps, kbyte/s is *1000/8
+	    # sync is in kbps,
 	    submit("speedtouch",
 		   "resets:errorsecs:downsync:upsync:downmargin:upmargin:down:up",
-		   $resets,$errorsecs,$syncdown*125,$syncup*125,$margdn,$margup,
+		   $resets,$errorsecs,$syncdown*1000,$syncup*1000,$margdn,$margup,
 		   updatedelta($saved->{speedtouch},'down',$down,$rollover),
 		   updatedelta($saved->{speedtouch},'up',$up,$rollover));
 	}
@@ -224,10 +224,10 @@ if (my $x=$cf->{sources}->{dsl})
 	}
 	else 
 	{
-	    # sync is in kbps, byte/s is *1000/8
+	    # sync is in kbps
 	    submit("dsl",
 		   "resets:errorsecs:downsync:upsync:downmargin:upmargin:down:up",
-		   $resets,$errorsecs,$syncdown*125,$syncup*125,$margdn,$margup,
+		   $resets,$errorsecs,$syncdown,$syncup,$margdn,$margup,
 	       updatedelta($saved->{dsl},'down',$down,$rollover),
 		   updatedelta($saved->{dsl},'up',$up,$rollover));
 	}
