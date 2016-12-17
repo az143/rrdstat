@@ -321,7 +321,7 @@ COMMENT:\n'));
 	elsif ($args{type} eq "inet")
 	{
 	    my $xrrdf="$args{rrddir}/$args{name}-iptables.rrd";
-	    push @rrdargs,(qw(-v bytes/s),
+	    push @rrdargs,(qw(-v bit/s),
 			   (map { "DEF:$_=$rrdf:$_:AVERAGE" } (qw(down up downsync upsync))),
 			   "DEF:dropped=$xrrdf:logdrop:AVERAGE",
 			   split(/\s*\n\s*/, 'CDEF:upneg=0,up,-
