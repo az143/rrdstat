@@ -235,10 +235,11 @@ COMMENT:\n'));
 		my $namedelta=1+$maxlen-length('cpu');
 		my $spacer=" " x ($namedelta);
 		push @cputemp,('AREA:c#0000CD:cpu',
-			       "COMMENT:$spacer",
-			       'GPRINT:c:MIN:min\: %4.1lf',
-			       'GPRINT:c:MAX:max\: %4.1lf',
-			       'GPRINT:c:AVERAGE:avg\: %4.1lf deg',
+									 "COMMENT:$spacer",
+									 'GPRINT:c:MIN:min\: %4.1lf',
+									 'GPRINT:c:MAX:max\: %4.1lf',
+									 'GPRINT:c:AVERAGE:avg\: %4.1lf',
+									 'GPRINT:c:LAST:cur\: %4.1lf deg',
 			       'COMMENT:\n');
 	    }
 	    # board/case/other temp sensors
@@ -250,72 +251,75 @@ COMMENT:\n'));
 		# collate oder einziger sensor?
 		if (my @temps=split(/\s+/,$bt))
 		{
-		    if (@temps>1)
-		    {
-			push @casetemp,((map { "DEF:$_=$rrdf:$_:AVERAGE" } (@temps)),
-					"CDEF:b=".join(",",@temps).",".@temps.",AVG");
-		    }
-		    else
-		    {
-			push @rrdargs,"DEF:b=$rrdf:$bt:AVERAGE";
-		    }
+			if (@temps>1)
+			{
+				push @casetemp,((map { "DEF:$_=$rrdf:$_:AVERAGE" } (@temps)),
+												"CDEF:b=".join(",",@temps).",".@temps.",AVG");
+			}
+			else
+			{
+				push @rrdargs,"DEF:b=$rrdf:$bt:AVERAGE";
+			}
 		}
 		push @casetemp,('AREA:b#afeeee:case',
-				"COMMENT:$spacer",
-				'GPRINT:b:MIN:min\: %4.1lf',
-				'GPRINT:b:MAX:max\: %4.1lf',
-				'GPRINT:b:AVERAGE:avg\: %4.1lf deg',
+										"COMMENT:$spacer",
+										'GPRINT:b:MIN:min\: %4.1lf',
+										'GPRINT:b:MAX:max\: %4.1lf',
+										'GPRINT:b:AVERAGE:avg\: %4.1lf',
+										'GPRINT:b:LAST:cur\: %4.1lf',
 				'COMMENT:\n');
 	    }
-
+			
 	    # heffalump nf96 board: system temp higher than cpu, so need to reorder
 	    if ($extras->{cpufront})
 	    {
-		push @rrdargs,@casetemp,@cputemp;
+				push @rrdargs,@casetemp,@cputemp;
 	    }
 	    else
 	    {
-		push @rrdargs,@cputemp,@casetemp;
+				push @rrdargs,@cputemp,@casetemp;
 	    }
 	    
 	    # disk(s)
 	    for my $i (0..$#disks)
 	    {
-		my $l=shift @labels;
-		my $namedelta=1+$maxlen-length($l);
-		my $spacer=" " x ($namedelta);
-		
-		push @rrdargs,("DEF:t$i=$rrdf:$disks[$i]:AVERAGE",
-			       "LINE1:t$i#$colors[$i]:$l",
-			       "COMMENT:$spacer",
-			       "GPRINT:t$i:MIN:min\\: %4.1lf",
-			       "GPRINT:t$i:MAX:max\\: %4.1lf",
-			       "GPRINT:t$i:AVERAGE:avg\\: %4.1lf deg",
-			       'COMMENT:\n');
+				my $l=shift @labels;
+				my $namedelta=1+$maxlen-length($l);
+				my $spacer=" " x ($namedelta);
+				
+				push @rrdargs,("DEF:t$i=$rrdf:$disks[$i]:AVERAGE",
+											 "LINE1:t$i#$colors[$i]:$l",
+											 "COMMENT:$spacer",
+											 "GPRINT:t$i:MIN:min\\: %4.1lf",
+											 "GPRINT:t$i:MAX:max\\: %4.1lf",
+											 "GPRINT:t$i:AVERAGE:avg\\: %4.1lf",
+											 "GPRINT:t$i:LAST:cur\\: %4.1lf deg",
+											 'COMMENT:\n');
 	    }
 	    # finally, fans
 	    for my $i (0..$#fans)
 	    {
-		my $l=shift @labels;
-		my $namedelta=1+$maxlen-length($l);
-		my $spacer=" " x ($namedelta);
+				my $l=shift @labels;
+				my $namedelta=1+$maxlen-length($l);
+				my $spacer=" " x ($namedelta);
 		
-		push @rrdargs,"DEF:f$i=$rrdf:$fans[$i]:AVERAGE";
-		if ($extras->{fanscale})
-		{
-		    push @rrdargs,("CDEF:sf$i=f$i,$extras->{fanscale},/",
-				   "LINE:sf$i#$fcolors[$i]:$l");
-		}
-		else
-		{
-		    push @rrdargs,"LINE:f$i#$fcolors[$i]:$l";
-		}
-		push @rrdargs,("COMMENT:$spacer",
-			       "GPRINT:f$i:MIN:min\\: %4.0lf",
-			       "GPRINT:f$i:MAX:max\\: %4.0lf",
-			       "GPRINT:f$i:AVERAGE:avg\\: %4.0lf "
-			       .($extras->{fanpercent}?"%%":"rpm"),
-			       'COMMENT:\n');
+				push @rrdargs,"DEF:f$i=$rrdf:$fans[$i]:AVERAGE";
+				if ($extras->{fanscale})
+				{
+					push @rrdargs,("CDEF:sf$i=f$i,$extras->{fanscale},/",
+												 "LINE:sf$i#$fcolors[$i]:$l");
+				}
+				else
+				{
+					push @rrdargs,"LINE:f$i#$fcolors[$i]:$l";
+				}
+				push @rrdargs,("COMMENT:$spacer",
+											 "GPRINT:f$i:MIN:min\\: %4.0lf",
+											 "GPRINT:f$i:MAX:max\\: %4.0lf",
+											 "GPRINT:f$i:AVERAGE:avg\\: %4.0lf",
+											 "GPRINT:f$i:LAST:cur\\: %4.0lf "
+											 .($extras->{fanpercent}?"%%":"rpm"),
+											 'COMMENT:\n');
 	    }
 	}
 	elsif ($args{type} eq "inet")
