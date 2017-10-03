@@ -222,52 +222,52 @@ COMMENT:\n'));
 	    # cpus: collate oder einzige
 	    if (my @cpus=split(/\s+/,$extras->{cpu}))
 	    {
-		if (@cpus>1)
-		{
-		    push @cputemp,((map { "DEF:$_=$rrdf:$_:AVERAGE" } (@cpus)),
-				   "CDEF:c=".join(",",@cpus).",".@cpus.",AVG");
-		}
-		else
-		{
-		    push @rrdargs,"DEF:c=$rrdf:$cpus[0]:AVERAGE";
-		}
-		
-		my $namedelta=1+$maxlen-length('cpu');
-		my $spacer=" " x ($namedelta);
-		push @cputemp,('AREA:c#0000CD:cpu',
-									 "COMMENT:$spacer",
-									 'GPRINT:c:MIN:min\: %4.1lf',
-									 'GPRINT:c:MAX:max\: %4.1lf',
-									 'GPRINT:c:AVERAGE:avg\: %4.1lf',
-									 'GPRINT:c:LAST:cur\: %4.1lf deg',
-			       'COMMENT:\n');
+				if (@cpus>1)
+				{
+					push @cputemp,((map { "DEF:$_=$rrdf:$_:AVERAGE" } (@cpus)),
+												 "CDEF:c=".join(",",@cpus).",".@cpus.",AVG");
+				}
+				else
+				{
+					push @rrdargs,"DEF:c=$rrdf:$cpus[0]:AVERAGE";
+				}
+				
+				my $namedelta=1+$maxlen-length('cpu');
+				my $spacer=" " x ($namedelta);
+				push @cputemp,('AREA:c#0000CD:cpu',
+											 "COMMENT:$spacer",
+											 'GPRINT:c:MIN:min\: %4.1lf',
+											 'GPRINT:c:MAX:max\: %4.1lf',
+											 'GPRINT:c:AVERAGE:avg\: %4.1lf',
+											 'GPRINT:c:LAST:cur\: %4.1lf deg',
+											 'COMMENT:\n');
 	    }
 	    # board/case/other temp sensors
 	    if (my $bt=$extras->{board})
 	    {
-		my $namedelta=1+$maxlen-length('case');
-		my $spacer=" " x ($namedelta);
-		
-		# collate oder einziger sensor?
-		if (my @temps=split(/\s+/,$bt))
-		{
-			if (@temps>1)
-			{
-				push @casetemp,((map { "DEF:$_=$rrdf:$_:AVERAGE" } (@temps)),
-												"CDEF:b=".join(",",@temps).",".@temps.",AVG");
-			}
-			else
-			{
-				push @rrdargs,"DEF:b=$rrdf:$bt:AVERAGE";
-			}
-		}
-		push @casetemp,('AREA:b#afeeee:case',
-										"COMMENT:$spacer",
-										'GPRINT:b:MIN:min\: %4.1lf',
-										'GPRINT:b:MAX:max\: %4.1lf',
-										'GPRINT:b:AVERAGE:avg\: %4.1lf',
-										'GPRINT:b:LAST:cur\: %4.1lf',
-				'COMMENT:\n');
+				my $namedelta=1+$maxlen-length('case');
+				my $spacer=" " x ($namedelta);
+				
+				# collate oder einziger sensor?
+				if (my @temps=split(/\s+/,$bt))
+				{
+					if (@temps>1)
+					{
+						push @casetemp,((map { "DEF:$_=$rrdf:$_:AVERAGE" } (@temps)),
+														"CDEF:b=".join(",",@temps).",".@temps.",AVG");
+					}
+					else
+					{
+						push @rrdargs,"DEF:b=$rrdf:$bt:AVERAGE";
+					}
+				}
+				push @casetemp,('AREA:b#afeeee:case',
+												"COMMENT:$spacer",
+												'GPRINT:b:MIN:min\: %4.1lf',
+												'GPRINT:b:MAX:max\: %4.1lf',
+												'GPRINT:b:AVERAGE:avg\: %4.1lf',
+												'GPRINT:b:LAST:cur\: %4.1lf deg',
+												'COMMENT:\n');
 	    }
 			
 	    # heffalump nf96 board: system temp higher than cpu, so need to reorder
