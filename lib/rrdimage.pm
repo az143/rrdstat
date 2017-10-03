@@ -492,7 +492,7 @@ LINE:axis#808080:
 	{
 	    push @rrdargs,(qw(-v articles/h),
 			   (map { ("DEF:x$_=$rrdf:$_:AVERAGE","CDEF:$_=x$_,3600,*") } (qw(in out refused))),
-			   split(/\s*\n\s*/,'AREA:in#98fb98:in:
+			   split(/\s*\n\s*/,'AREA:in#98fb98:in
     GPRINT:in:MIN: min\: %4.0lf
     GPRINT:in:MAX:max\: %4.0lf
     GPRINT:in:AVERAGE:avg\: %4.0lf
@@ -562,7 +562,7 @@ LINE:axis#808080:
     GPRINT:acc:AVERAGE:avg\: %5.1lf
     COMMENT:\n
     LINE1:nacc#58bb58:
-    AREA:searly#ffd700:early rej:
+    AREA:searly#ffd700:early rej
     GPRINT:searly:MIN:min\: %5.1lf
     GPRINT:searly:MAX:max\: %5.1lf
     GPRINT:searly:AVERAGE:avg\: %5.1lf
