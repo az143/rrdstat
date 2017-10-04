@@ -72,7 +72,7 @@ while ($response !~ /^(ERROR|OK)/)
 
 for my $k (sort { $a <=> $b } (grep $_ > $lastupdate, keys %readings))
 {
-    my @cmd=("update","/$rrdname","$k:$readings{$k}");
+    my @cmd=("update","./$rrdname","$k:$readings{$k}");
 #    print "saving: $k ".localtime($k)." ".$readings{$k}."\n";
 
     print $socket join(" ",@cmd)."\n";
