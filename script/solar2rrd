@@ -61,7 +61,7 @@ while ($socket && !$socket->atmark)
 }
 
 # neuestes reading war wann?
-print $socket "lastupdate /$rrdname\n";
+print $socket "lastupdate ./$rrdname\n";
 undef $response;
 my $lastupdate=0;
 while ($response !~ /^(ERROR|OK)/)
