@@ -355,10 +355,10 @@ LINE:axis#808080:
 	}
 	elsif ($args{type} eq "linestatus")
 	{
-	    push @rrdargs,(qw(-v bit/s -l 0 --right-axis .004:0 --right-axis-format %4.0lf),
+	    push @rrdargs,(qw(-v bit/s -l 0 --right-axis .0005:0 --right-axis-format %4.0lf),
 			   "--right-axis-label","error secs",
 			   (map { "DEF:$_=$rrdf:$_:AVERAGE" } (qw(down up downsync upsync downmargin upmargin resets errorsecs))),
-			   split(/\s*\n\s*/,'CDEF:es=errorsecs,250,*
+			   split(/\s*\n\s*/,'CDEF:es=errorsecs,2000,*
     LINE1:downsync#32cd32:down sync
     GPRINT:downsync:MAX:max\: %5.1lf%s
     GPRINT:downsync:AVERAGE:avg\: %5.1lf%s
