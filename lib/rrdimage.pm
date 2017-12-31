@@ -373,7 +373,7 @@ LINE:axis#808080:
     GPRINT:downmargin:LAST:margin dn\: %4.1lf
     COMMENT:\n
     AREA:es#FFd700:errors
-    GPRINT:errorsecs:LAST:cur\: %3.0lf
+    GPRINT:errorsecs:AVERAGE:avg\: %3.0lf
     GPRINT:resets:LAST:resets\: %3.0lf
     COMMENT:\n
     LINE:es#bfa700:'));
