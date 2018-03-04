@@ -1,5 +1,5 @@
 # example /etc/rrdstat.yml config file
-rrddir: ''
+rrddir: '.'
 rrdprefix: thishost-
 persistfile: /tmp/rrdstat.yml
 daemonhost: your_rrd_server
