@@ -56,20 +56,28 @@ sub heartbeat
 # create the overview page
 sub overview
 {
-    my ($self)=@_;
+	my ($self)=@_;
 
-    $self->render_not_found if ($self->stash("format")); # format restricting in the route doesn't seem to work.
+	# redirect to https - not enabled at this time
 
-    # regeneration is forced for shift-reloads
-    my $ccontrol=$self->req->headers->cache_control;
-    $self->stash("forceregen"=>1) if (defined $ccontrol && $ccontrol eq "no-cache");
+	# under mod-psgi somehow $self->tx->req->url is n/a and incomplete
+	# unless and until to_abs is called on it...
+	# my $url = $self->tx->req->url->to_abs;
+	#	return $self->redirect_to($url->clone->scheme("https"))
+	#	if (lc($url->scheme) eq "http");
+	
+	$self->reply->not_found if ($self->stash("format")); # format restricting in the route doesn't seem to work.
 
-    my %rendersections=%{ $self->stash("sections") };;
-    # walk the sections, run rrdimage_update, and feed the result to the overview template
-    for my $sname (@{$rendersections{_order}})
-    {
-	for my $entity (@{$rendersections{$sname}})
+	# regeneration is forced for shift-reloads
+	my $ccontrol=$self->req->headers->cache_control;
+	$self->stash("forceregen"=>1) if (defined $ccontrol && $ccontrol eq "no-cache");
+
+	my %rendersections=%{ $self->stash("sections") };;
+	# walk the sections, run rrdimage_update, and feed the result to the overview template
+	for my $sname (@{$rendersections{_order}})
 	{
+		for my $entity (@{$rendersections{$sname}})
+		{
 	    # run rrdimage update
 	    # params include: the stashed defaults, the entity info and the mode
 	    my ($errormsg,$imgname,$x,$y)=rrdimage::rrdimage_update(%{$self->stash}, mode=>"overview", %{$entity});
@@ -79,54 +87,54 @@ sub overview
 
 	    $entity->{imgurl} = $self->url_for($self->stash("imgloc")."/$imgname")->to_string;
 	    $entity->{detailurl} = $self->url_for("/$entity->{name}/$entity->{type}/")->to_string;
+		}
 	}
-    }
-    $self->stash(rendersections => \%rendersections);
-    # render overview template
-    $self->res->headers->cache_control('max-age='.$self->stash("maxage"));
-    $self->render(template=>"/index",layout=>"default");
+	$self->stash(rendersections => \%rendersections);
+	# render overview template
+	$self->res->headers->cache_control('max-age='.$self->stash("maxage"));
+	$self->render(template=>"/index",layout=>"default");
 }
 
 # create the details page for one object+type
 # stashed object+type indicate which object to work on
 sub details
 {
-    my ($self)=@_;
-    $self->render_not_found if ($self->stash("format")); # format restricting in the route doesn't seem to work.
+	my ($self)=@_;
+	$self->reply->not_found if ($self->stash("format")); # format restricting in the route doesn't seem to work.
 
-    # regeneration is forced for shift-reloads
-    my $ccontrol=$self->req->headers->cache_control;
-    $self->stash("forceregen"=>1) if (defined $ccontrol && $ccontrol eq "no-cache");
+	# regeneration is forced for shift-reloads
+	my $ccontrol=$self->req->headers->cache_control;
+	$self->stash("forceregen"=>1) if (defined $ccontrol && $ccontrol eq "no-cache");
 
-    # find the relevant remaining parameters from the section list
-    my $entity;
-    my $object=$self->param("object");
-    my $type=$self->param("type");
+	# find the relevant remaining parameters from the section list
+	my $entity;
+	my $object=$self->param("object");
+	my $type=$self->param("type");
 
-  LOOPER: 
-    for my $sname (@{$self->stash("sections")->{_order}})
-    {
-	for my $e (@{$self->stash("sections")->{$sname}})
+ LOOPER: 
+	for my $sname (@{$self->stash("sections")->{_order}})
 	{
+		for my $e (@{$self->stash("sections")->{$sname}})
+		{
 	    if ($e->{name} eq $object and $e->{type} eq $type)
 	    {
-		$entity=$e;
-		last LOOPER;
+				$entity=$e;
+				last LOOPER;
 	    }
+		}
 	}
-    }
-    $self->render_not_found  if (!$entity);
+	$self->reply->not_found  if (!$entity);
 	
 
-    $self->stash(title => "$object $type");
-    for my $mode (qw(day week month year))
-    {
-	my ($errormsg,$imgname,$x,$y)=rrdimage::rrdimage_update(%{$self->stash}, mode=>$mode, %{$entity});
-	$self->stash($mode => $self->url_for($self->stash("imgloc")."/$imgname")->to_string);
-    }
-    # render details template
-    $self->res->headers->cache_control('max-age='.$self->stash("maxage"));
-    $self->render(template=>"/details", layout=>"default");
+	$self->stash(title => "$object $type");
+	for my $mode (qw(day week month year))
+	{
+		my ($errormsg,$imgname,$x,$y)=rrdimage::rrdimage_update(%{$self->stash}, mode=>$mode, %{$entity});
+		$self->stash($mode => $self->url_for($self->stash("imgloc")."/$imgname")->to_string);
+	}
+	# render details template
+	$self->res->headers->cache_control('max-age='.$self->stash("maxage"));
+	$self->render(template=>"/details", layout=>"default");
 }
 
 1;
