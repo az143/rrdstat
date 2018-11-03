@@ -7,35 +7,47 @@ package Mrrd;
 use Mojo::Base 'Mojolicious';
 
 # called once on startup
-sub startup 
+sub startup
 {
-    my ($self) = @_;
-    
-    # not using any cookies, so a new internal secret every startup is peachy.
-    $self->secrets([ rand(100000) ]);
+	my ($self) = @_;
 
-    # set up our defaults: where are the graphs, rrdfiles, when to regen
-    # end up in stash
-    $self->defaults({ imgloc => "/img", # relative to public
-		      imgdir => $self->home->rel_dir('/public/img'), # actual path
+	# not using any cookies, so a new internal secret every startup is peachy.
+	$self->secrets([ rand(100000) ]);
 
-		      rrddir => "/var/lib/rrd",
-		      maxage => 15*60,
-		      # long list of section-thingie definitions, see example in config/
-		      # returns hashref
-		      sections => do "/etc/mrrd_sections.conf",
-		    });
+	# set up our defaults: where are the graphs, rrdfiles, when to regen
+	# end up in stash
+	$self->defaults({ imgloc => "/img", # relative to public
+										imgdir => $self->home->rel_file('/public/img'), # actual path
 
-    my $r = $self->routes;
-    # overview and details, that's all
-    $r->get('/')->to(controller=>"Dinky",action=>"overview")->name("home");
-    $r->get("/:object/:type/")->to(controller=>"Dinky",action=>"details");
+										rrddir => "/var/lib/rrd",
+										maxage => 15*60,
+										# long list of section-thingie definitions, see example in config/
+										# returns hashref
+										sections => do "/etc/mrrd_sections.conf",
+									});
 
-		# plus a heartbeat endpoint
-		$r->options("/heartbeat")->to(controller=>"Dinky", action=>"heartbeat");
+	my $r = $self->routes;
+	# overview and details, that's all
+	$r->get('/')->to(controller=>"Dinky",action=>"overview")->name("home");
+	$r->get("/:object/:type/")->to(controller=>"Dinky",action=>"details");
 
-		# and nothing else
-		$r->any("*unwanted" => sub { shift->render(status=>405, text => "No."); });
+	# plus a heartbeat endpoint
+	$r->options("/heartbeat")->to(controller=>"Dinky", action=>"heartbeat");
+
+	# and nothing else
+	$r->any("*unwanted" => sub { shift->render(status=>405, text => "No."); });
+
+	# with ProxyPass http://127.0.0.1:12345/rrd,
+	# we get see /rrd, so split that off for incoming routing
+	# BUT retain it for url making! however: breaks direct access to port
+	$self->hook(before_dispatch => sub {
+		my $c = shift;
+
+		# mojolicious::cookbook has this cargo-cult shit. 
+		# docs say nothing about array mode for trailing slash 8-(
+		push @{$c->req->url->base->path->trailing_slash(1)},
+		shift @{$c->req->url->path->leading_slash(0)};
+							});
 }
 
 1;
@@ -58,14 +70,6 @@ sub overview
 {
 	my ($self)=@_;
 
-	# redirect to https - not enabled at this time
-
-	# under mod-psgi somehow $self->tx->req->url is n/a and incomplete
-	# unless and until to_abs is called on it...
-	# my $url = $self->tx->req->url->to_abs;
-	#	return $self->redirect_to($url->clone->scheme("https"))
-	#	if (lc($url->scheme) eq "http");
-	
 	$self->reply->not_found if ($self->stash("format")); # format restricting in the route doesn't seem to work.
 
 	# regeneration is forced for shift-reloads
@@ -111,7 +115,7 @@ sub details
 	my $object=$self->param("object");
 	my $type=$self->param("type");
 
- LOOPER: 
+ LOOPER:
 	for my $sname (@{$self->stash("sections")->{_order}})
 	{
 		for my $e (@{$self->stash("sections")->{$sname}})
@@ -124,7 +128,7 @@ sub details
 		}
 	}
 	$self->reply->not_found  if (!$entity);
-	
+
 
 	$self->stash(title => "$object $type");
 	for my $mode (qw(day week month year))
@@ -138,5 +142,3 @@ sub details
 }
 
 1;
-
-
