@@ -585,7 +585,7 @@ LINE:axis#808080:
 	    # solar elev and energy: calc and graph daily maxes for month, year mode
 	    my $maxmode=($args{mode} eq "month" or $args{mode} eq "year")?"MAX:step=86400":"AVERAGE";
 	    
-	    push @rrdargs,(qw(-v Watt -u 1300 --right-axis),$rightscale.":0",
+	    push @rrdargs,(qw(-v Watt -u 1750 --right-axis),$rightscale.":0",
 			   qw(--right-axis-label kWh --right-axis-format %3.1lf),
 			   "DEF:relev=$args{rrddir}/heffalump-sun_elevation.rrd:elevation:$maxmode",
 			   "DEF:rexp=$args{rrddir}/heffalump-sun_exposure.rrd:exposure:AVERAGE",
