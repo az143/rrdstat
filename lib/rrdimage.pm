@@ -209,7 +209,7 @@ COMMENT:\n'));
       my @disks=split(/\s+/,$extras->{disks});
 
       my $maxlen=length((sort { length($b) <=> length($a) } (@labels,"cpu","case"))[0]);
-      my @colors=qw(ffd700 ff8c00 b22222); # disks
+      my @colors=qw(ffd700 ff8c00 b22222 FF1493); # disks
       my @fcolors=qw(ff00ff 008000 98fb98); # fans
 
       push @rrdargs,(qw(-u 60 -l 25),"-v","deg C");
