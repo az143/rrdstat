@@ -748,55 +748,75 @@ sub submit
 	my ($rrdname,$dstemplate,@values)=@_;
 	my $response;
 
-	if (!$socket && $cf->{daemonhost} && $cf->{daemonport} && !$opts{s})
+
+	# network scenario first
+	if ($cf->{daemonhost} && $cf->{daemonport})
 	{
-		$socket=IO::Socket::INET->new(PeerAddr=>$cf->{daemonhost},
-																	PeerPort=>$cf->{daemonport},
-																	Proto=>"tcp",
-																	Timeout=>10);
-		while ($socket && !$socket->atmark)
+		# try to open a socket
+		if (!$socket && !$opts{s})
 		{
-      $response=<$socket>;
+			$socket=IO::Socket::INET->new(PeerAddr=>$cf->{daemonhost},
+																		PeerPort=>$cf->{daemonport},
+																		Proto=>"tcp",
+																		Timeout=>5);
+			while ($socket && !$socket->atmark)
+			{
+				$response=<$socket>;
+			}
 		}
-	}
 
-	my @cmd; @cmd=("rrdtool") if (!$cf->{daemonhost});
-	push @cmd,("update",$cf->{rrddir}."/".$cf->{rrdprefix}.$rrdname.".rrd",
-						 "-t",$dstemplate);
-	if ($socket && $saved->{tempstorage}->{$rrdname})
-	{
-		push @cmd,@{$saved->{tempstorage}->{$rrdname}};
-		delete $saved->{tempstorage}->{$rrdname};
-	}
-	push @cmd, "N:". join(":", map { defined $_? $_: "U" } (@values));
-
-	if ($opts{s})
-	{
-		print join(" ",@cmd)."\n";
-	}
-	elsif ($cf->{daemonhost})
-	{
-		if ($socket)
+		if (!$socket)
 		{
-      print $socket join(" ",@cmd)."\n";
-      $response=<$socket>;
-      chomp $response;
-      if ($response!~/^OK/)
-      {
-				print "remote command failed: \"$response\"\n";
-				return 1;
-      }
+			# park stuff in storage until the server comes back
+      push @{$saved->{tempstorage}->{$rrdname}},
+			[ $dstemplate, time.":".join(":", map { defined $_? $_: "U" } (@values)) ];
+			return 0;
+		}
+
+		my @sendthis;
+		# first try to submit all past saved stuff; ds templates may be different!
+		if ($saved->{tempstorage}->{$rrdname})
+		{
+			push @sendthis, map {
+				"update ".$cf->{rrddir}."/".$cf->{rrdprefix}.$rrdname.".rrd -t "
+						. $_->[0] . " ". $_->[1] } (@{$saved->{tempstorage}->{$rrdname}});
+			delete $saved->{tempstorage}->{$rrdname};
+		}
+		# then include the current stuff
+		push @sendthis, "update ".$cf->{rrddir}."/".$cf->{rrdprefix}.$rrdname.".rrd -t "
+				.$dstemplate." ". "N:". join(":", map { defined $_? $_: "U" } (@values));
+
+		if ($opts{s})
+		{
+			print join("\n",@sendthis)."\n";
 		}
 		else
 		{
-      # temp storage until the server comes back
-      push @{$saved->{tempstorage}->{$rrdname}},(time.":".join(":", map { defined $_? $_: "U" } (@values)));
+			for my $cmd (@sendthis)
+			{
+				print $socket "$cmd\n";
+				$response=<$socket>;
+				chomp $response;
+				if ($response!~/^OK/)
+				{
+					print "remote command \"$cmd\" failed: \"$response\"\n";
+					return 1;
+				}
+			}
 		}
-		return 0;
 	}
 	else
 	{
-		my $res=0xffff & system(@cmd);
+		my $cmd = "rrdtool update ".$cf->{rrddir}."/".$cf->{rrdprefix}.$rrdname.".rrd -t "
+				.$dstemplate." ". "N:". join(":", map { defined $_? $_: "U" } (@values));
+
+		if ($opts{s})
+		{
+			print "$cmd\n";
+			return 0;
+		}
+
+		my $res=0xffff & system($cmd);
 		return $res;
 	}
 }
