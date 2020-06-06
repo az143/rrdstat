@@ -9,6 +9,7 @@ use Data::Dumper;
 use Getopt::Std;
 use IO::Socket::INET;
 use Math::Trig;
+use Device::Modbus::TCP::Client;
 use POSIX qw(strftime);
 
 my %opts;
@@ -668,6 +669,126 @@ if (my $gw=$cf->{sources}->{growatt})
 		}
 	}
 }
+
+# sungrow:
+#  address: dns or ip
+#  port: 502 (optional)
+#  unit: 1 (optional)
+#  username: req'd
+#  password: req'd
+if (my $sg=$cf->{sources}->{sungrow})
+{
+	my @things = qw(etoday etotal temp pv1voltage pv1current pv2voltage pv2current
+dcpower acvoltage accurrent activepower status);
+
+	if ($opts{w})
+	{
+		printcreate("sungrow", join(":",@things), ("GAUGE") x (scalar @things));
+	}
+	else
+	{
+		# first, connect to the web interface to check that the config is
+		# as 'safe' as it can get...these devices reset most settings on power-up AND leak your wifi psk.
+		my $sgaddress = $sg->{address};
+    my $setupurl = "http://$sgaddress/parameter.cgi";
+    my $reseturl = "http://$sgaddress/manage.cgi";
+
+    my $ua = LWP::UserAgent->new;
+    $ua->timeout(2);            # don't wait too long
+    $ua->credentials("$sgaddress:80", "RAK LOGIN", $sg->{username}, $sg->{pwd});
+    my $setup = $ua->get($setupurl);
+
+    if (!$setup->is_success)
+    {
+      debug("sungrow web interface not reachable, can't do anything further");
+    }
+    else
+    {
+      my $nothtml = $setup->decoded_content; # claims html, no cte
+      if ($nothtml =~ /wlan_mode=2/)            # unsafe
+      {
+        debug("sungrow web interface is reachable, config is unsafe - fixing it up");
+        my $fixmeup = $ua->post($setupurl, [ wlan_mode => 0, # only station, no wide-open access point
+                                             socketB_destip => 127.0.0.1, # do not phone home
+                                             socketC_destip => 127.0.0.1,
+                                             socketD_destip => 127.0.0.1,
+                                             socketB_type => 1, # really really really do not phone home
+                                             socketC_type => 1,
+                                             socketD_type => 1,
+                                             local_find_en => 0, # and don't bother with multicast dns either
+                                ]);
+        if ($fixmeup->is_success)
+        {
+          # now activate the parameters with a softreset
+          my $finish = $ua->get($reseturl);
+          debug("sungrow soft reset done:".$finish->status_line);
+        }
+        else
+        {
+          debug("sungrow fix up request failed: ".$fixmeup->status_line);
+				}
+			}
+			else
+			{
+				debug("sungrow web interface is reachable and config is as safe as it'll ever be");
+
+				# now make the modbus request
+				my $conn = Device::Modbus::TCP::Client->new(host => $sgaddress);
+				my $req = $conn->read_input_registers(unit => 1,
+																							address => 5003-1, # apparently the register lists are off by one
+																							quantity => 5081-5003+1);
+				my $response;
+				eval { $conn->send_request($req); }; # throws an exception if no connectivity
+				if (!$@)
+				{
+					$response = $conn->receive_response;
+				}
+				if ($@ or !$response->success)
+				{
+					debug("modbus request failed: ".$@ || $response->message);
+				}
+				else
+				{
+					my $raw = pack("n*",@{$response->values}); # having N 16-bit values is unwieldy
+					my %sgdata;
+
+					# 5003 etoday 5004 etotal 5008 temp 5011 pv1volt 5012 pv1current 5013 pv2volt 5014 pv2current
+					# 5017 dcpower 5019 acvoltage 5022 accurrent 5031 activepower 5081 status
+					@sgdata{@things} = unpack("nnx6s>x4nnnnx4nx2nx4nx16nx98n",$raw);
+					for my $scaleme (qw(etoday temp pv1voltage pv1current pv2voltage pv2current acvoltage accurrent))
+					{
+						$sgdata{$scaleme} /= 10;
+					}
+
+					my %states = (  1 => "running",
+													2 => "normal stop",
+													4 => "initial standby",
+													8 => "key stop",
+													16 => "normal standby",
+													32 => "emergency stop",
+													64 => "normal startup",
+													128 => "normal standby",
+													512 => "fault stop",
+													1024 => "warn running",
+													2048 => "derating",
+													4096 => "limit operation",
+													8192 => "comms fault",
+													65536 => "normal standby",
+													131072 => "normal standby",
+													262144 => "normal standby" );
+					debug(sprintf("sungrow reported: energy today %.1f kwh\nenergy total %d kwh\ntemp %.1f degc\npv1 %.1f V %.1f A\npv2 %.1f V %.1f A\ndc power %d W\nac %.1f V %.1f A\nactivepower %d W\nstatus %s\n",
+								@sgdata{qw(etoday etotal temp pv1voltage pv1current pv2voltage pv2current dcpower acvoltage accurrent activepower)},
+								$states{$sgdata{status}} // "Unknown"));
+
+					submit("sungrow", join(":",@things),
+								 @sgdata{@things});
+				}
+			}
+		}
+	}
+}
+
+
 
 
 

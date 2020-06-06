@@ -1,4 +1,5 @@
 mrrd_sections.conf
+rrdstat.yml
 alt
 public/img
 log/*.log
