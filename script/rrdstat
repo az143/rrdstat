@@ -709,9 +709,9 @@ dcpower acvoltage accurrent activepower status);
       {
         debug("sungrow web interface is reachable, config is unsafe - fixing it up");
         my $fixmeup = $ua->post($setupurl, [ wlan_mode => 0, # only station, no wide-open access point
-                                             socketB_destip => 127.0.0.1, # do not phone home
-                                             socketC_destip => 127.0.0.1,
-                                             socketD_destip => 127.0.0.1,
+                                             socketB_destip => "127.0.0.1", # do not phone home
+                                             socketC_destip => "127.0.0.1",
+                                             socketD_destip => "127.0.0.1",
                                              socketB_type => 1, # really really really do not phone home
                                              socketC_type => 1,
                                              socketD_type => 1,

@@ -42,7 +42,8 @@ sub rrdimage_update
                   "news"=>"newslog",
                   "mail"=>"maillog",
                   "mailrej"=>"maillog",
-                  "solar"=>"growatt",
+                  "growatt"=>"growatt",
+									"sungrow"=>"sungrow",
         );
 
     my $rrdf="$args{rrddir}/$args{name}-".$type2tag{$args{type}}.".rrd";
@@ -595,7 +596,7 @@ CDEF:axis=in,UN,0,0,IF
 LINE:axis#808080:
     COMMENT:\n'));
     }
-    elsif ($args{type} eq "solar")
+    elsif ($args{type} eq "growatt")
     {
       my $rightscale=1/250.0;
       # solar elev and energy: calc and graph daily maxes for month, year mode
@@ -621,6 +622,45 @@ LINE:axis#808080:
                      'GPRINT:pnow:AVERAGE:avg\: %6.1lf',
                      'GPRINT:pnow:LAST:now\: %6.1lf Watt',
                      'COMMENT:\n');
+      push @rrdargs,("LINE:exp#ee82ee:exposure",
+                     'GPRINT:rexp:MAX:max\: %6.1lf',
+                     'GPRINT:rexp:AVERAGE:avg\: %6.1lf',
+                     'GPRINT:rexp:LAST:-1d\: %6.1lf kWh/m2',
+                     'COMMENT:\n') if ($args{mode} eq "week"
+                                       or $args{mode} eq "month" or $args{mode} eq "year");
+      push @rrdargs,("LINE:elev#ff8c00:elev",
+                     'GPRINT:relev:MAX:    max\: %6.1lf deg',
+                     'COMMENT:\n',
+      );
+    }
+		elsif ($args{type} eq "sungrow")
+    {
+      my $rightscale=1/200.0;		# fixme: suitable for 5kw inverter in my location?
+
+      # solar elev and energy: calc and graph daily maxes for month, year mode
+      my $maxmode=($args{mode} eq "month" or $args{mode} eq "year")?"MAX:step=86400":"AVERAGE";
+
+      push @rrdargs,(qw(-v Watt --right-axis),$rightscale.":0",
+                     qw(--right-axis-label kWh --right-axis-format %3.1lf),
+                     "DEF:relev=$args{rrddir}/heffalump-sun_elevation.rrd:elevation:$maxmode",
+                     "DEF:rexp=$args{rrddir}/heffalump-sun_exposure.rrd:exposure:AVERAGE",
+                     "CDEF:elev=relev,0,MAX,".(1500/90.0).",*",
+                     "DEF:rawtoday=$rrdf:etoday:$maxmode",
+                     "CDEF:etoday=rawtoday,".(1/$rightscale).",*",
+                     "CDEF:exp=rexp,".(1/$rightscale).",*",
+                     "AREA:etoday#98fb98:energy",
+                     "LINE1:etoday#58bb58:",
+                     'GPRINT:rawtoday:MAX:  max\: %6.1lf',
+                     'GPRINT:rawtoday:AVERAGE:avg\: %6.1lf',
+                     'GPRINT:rawtoday:LAST:now\: %6.1lf kWh',
+                     'COMMENT:\n',
+                     "DEF:pnow=$rrdf:activepower:AVERAGE",
+                     "LINE1:pnow#1e90ff:output",
+                     'GPRINT:pnow:MAX:  max\: %6.1lf',
+                     'GPRINT:pnow:AVERAGE:avg\: %6.1lf',
+                     'GPRINT:pnow:LAST:now\: %6.1lf Watt',
+                     'COMMENT:\n');
+
       push @rrdargs,("LINE:exp#ee82ee:exposure",
                      'GPRINT:rexp:MAX:max\: %6.1lf',
                      'GPRINT:rexp:AVERAGE:avg\: %6.1lf',
