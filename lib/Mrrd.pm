@@ -93,7 +93,7 @@ sub overview
 
       $entity->{imgurl} = $self->url_for($self->stash("imgloc")."/$imgname")->to_string;
 	    $entity->{detailurl} = $self->url_for(($entity->{subtype}? "details_sub" : "details"),
-                                            name => $entity->{name},
+                                            object => $entity->{name},
                                             type => $entity->{type},
                                             subtype => $entity->{subtype})->to_string;
 		}
