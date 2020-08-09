@@ -10,7 +10,7 @@ use Image::Size;
 # returns: errmsg (or 0), img name, x, y
 #
 # args: imgdir, rrddir, maxage, forceregen (defaults to 0)
-# name, imgname (defaults to name), type, label, mode (overview or day/week/month/year)
+# name, type, subtype (optional), label, mode (overview or day/week/month/year)
 # extras (for type-specific parameters)
 sub rrdimage_update
 {
@@ -20,7 +20,8 @@ sub rrdimage_update
 
   my $extras=$args{extras};
   my ($errmsg,$x,$y)=(0,0,0);
-  my $imgname = ($args{imgname}||$args{name})."-$args{type}-$args{mode}.png";
+  my $imgname = "$args{name}-$args{type}"
+      .($args{subtype}? "-$args{subtype}":"")."-$args{mode}.png";
   my $fn = "$args{imgdir}/$imgname";
   my $fage=(stat($fn))[9];
 

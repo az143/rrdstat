@@ -29,7 +29,9 @@ sub startup
 	my $r = $self->routes;
 	# overview and details, that's all
 	$r->get('/')->to(controller=>"Dinky",action=>"overview")->name("home");
-	$r->get("/:object/:type/")->to(controller=>"Dinky",action=>"details");
+  # but some rrds are source for more than one display
+	$r->get("/:object/:type/")->to(controller=>"Dinky",action=>"details")->name("details");
+  $r->get("/:object/:type/:subtype")->to(controller=>"Dinky",action=>"details")->name("details_sub");
 
 	# plus a heartbeat endpoint
 	$r->options("/heartbeat")->to(controller=>"Dinky", action=>"heartbeat");
@@ -43,7 +45,7 @@ sub startup
 	$self->hook(before_dispatch => sub {
 		my $c = shift;
 
-		# mojolicious::cookbook has this cargo-cult shit. 
+		# mojolicious::cookbook has this cargo-cult shit.
 		# docs say nothing about array mode for trailing slash 8-(
 		push @{$c->req->url->base->path->trailing_slash(1)},
 		shift @{$c->req->url->path->leading_slash(0)};
@@ -80,17 +82,20 @@ sub overview
 	# walk the sections, run rrdimage_update, and feed the result to the overview template
 	for my $sname (@{$rendersections{_order}})
 	{
-		for my $entity (@{$rendersections{$sname}})
-		{
-	    # run rrdimage update
-	    # params include: the stashed defaults, the entity info and the mode
-	    my ($errormsg,$imgname,$x,$y)=rrdimage::rrdimage_update(%{$self->stash}, mode=>"overview", %{$entity});
-	    $entity->{error}=$errormsg;
-	    $entity->{x}=$x;
-	    $entity->{y}=$y;
+    for my $entity (@{$rendersections{$sname}})
+    {
+      # run rrdimage update
+      # params include: the stashed defaults, the entity info and the mode
+      my ($errormsg,$imgname,$x,$y)=rrdimage::rrdimage_update(%{$self->stash}, mode=>"overview", %{$entity});
+      $entity->{error}=$errormsg;
+      $entity->{x}=$x;
+      $entity->{y}=$y;
 
-	    $entity->{imgurl} = $self->url_for($self->stash("imgloc")."/$imgname")->to_string;
-	    $entity->{detailurl} = $self->url_for("/$entity->{name}/$entity->{type}/")->to_string;
+      $entity->{imgurl} = $self->url_for($self->stash("imgloc")."/$imgname")->to_string;
+	    $entity->{detailurl} = $self->url_for(($entity->{subtype}? "details_sub" : "details"),
+                                            name => $entity->{name},
+                                            type => $entity->{type},
+                                            subtype => $entity->{subtype})->to_string;
 		}
 	}
 	$self->stash(rendersections => \%rendersections);
@@ -100,7 +105,7 @@ sub overview
 }
 
 # create the details page for one object+type
-# stashed object+type indicate which object to work on
+# stashed object+type indicate which object to work, may also have object+type+subtype
 sub details
 {
 	my ($self)=@_;
@@ -113,14 +118,17 @@ sub details
 	# find the relevant remaining parameters from the section list
 	my $entity;
 	my $object=$self->param("object");
-	my $type=$self->param("type");
+  my $type=$self->param("type");
+  my $subtype = $self->param("subtype");
 
  LOOPER:
 	for my $sname (@{$self->stash("sections")->{_order}})
 	{
 		for my $e (@{$self->stash("sections")->{$sname}})
 		{
-	    if ($e->{name} eq $object and $e->{type} eq $type)
+	    if ($e->{name} eq $object
+          and $e->{type} eq $type
+          and (!$subtype or $e->{subtype} eq $subtype) )
 	    {
 				$entity=$e;
 				last LOOPER;
