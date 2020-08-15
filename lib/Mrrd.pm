@@ -138,7 +138,7 @@ sub details
 	$self->reply->not_found  if (!$entity);
 
 
-	$self->stash(title => "$object $type");
+	$self->stash(title => "$object $type".($subtype?" $subtype":""));
 	for my $mode (qw(day week month year))
 	{
 		my ($errormsg,$imgname,$x,$y)=rrdimage::rrdimage_update(%{$self->stash}, mode=>$mode, %{$entity});
