@@ -601,6 +601,7 @@ LINE:axis#808080:
     {
       my $rightscale=1/250.0;
       # solar elev and energy: calc and graph daily maxes for month, year mode
+      # attention: month and year mode require a MAX rra!
       my $maxmode=($args{mode} eq "month" or $args{mode} eq "year")?"MAX:step=86400":"AVERAGE";
 
       push @rrdargs,(qw(-v Watt -u 1750 --right-axis),$rightscale.":0",
@@ -636,8 +637,8 @@ LINE:axis#808080:
     }
 		elsif ($args{type} eq "sungrow")
     {
-      my $rightscale=1/200.0;		# fixme: suitable for 5kw inverter in my location?
-
+      my $rightscale=1/200.0;
+      # attention: month and year mode require a MAX rra!
       # solar elev and energy: calc and graph daily maxes for month, year mode
       my $maxmode=($args{mode} eq "month" or $args{mode} eq "year")?"MAX:step=86400":"AVERAGE";
 
