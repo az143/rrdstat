@@ -212,7 +212,7 @@ COMMENT:\n'));
 
       my $maxlen=length((sort { length($b) <=> length($a) } (@labels,"cpu","case"))[0]);
       my @colors=qw(ffd700 ff8c00 b22222 FF1493); # disks
-      my @fcolors=qw(ff00ff 008000 98fb98); # fans
+      my @fcolors=qw(ff00ff 008000 ac3973); # fans
 
       push @rrdargs,(qw(-u 60 -l 25),"-v","deg C");
       if ($extras->{fanscale})
