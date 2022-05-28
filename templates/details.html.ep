@@ -22,5 +22,10 @@
 <strong>Yearly Graph (1d Average)</strong><br>
 <img class="nodeco" src="<%= $year %>">
 </div>
+
+<div style="float: left; padding-top: 20px;">		
+<strong>Bi-Yearly Graph (1d Average)</strong><br>
+<img class="nodeco" src="<%= $biyear %>">
+</div>
 <div style="clear: both"></div>
 

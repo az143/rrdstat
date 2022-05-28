@@ -82,9 +82,15 @@ sub rrdimage_update
                        'VRULE:'.(time-$sec-$min*60-$hour*3600-$mday*86400).'#ff0000',
                        'VRULE:'.mktime(0,0,0,1,$mon-1,$year).'#ff0000');
       }
-      else
+      elsif ($args{mode} eq "year")
       {
         push @rrdargs,(-396*86400,'-S',86400,
+                       'VRULE:'.mktime(0,0,0,1,0,$year).'#ff0000',
+                       'VRULE:'.mktime(0,0,0,1,0,$year-1).'#ff0000');
+      }
+      else                      # biyear
+      {
+        push @rrdargs,(-821*86400,'-S',86400,
                        'VRULE:'.mktime(0,0,0,1,0,$year).'#ff0000',
                        'VRULE:'.mktime(0,0,0,1,0,$year-1).'#ff0000');
       }

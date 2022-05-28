@@ -139,7 +139,7 @@ sub details
 
 
 	$self->stash(title => "$object $type".($subtype?" $subtype":""));
-	for my $mode (qw(day week month year))
+	for my $mode (qw(day week month year biyear))
 	{
 		my ($errormsg,$imgname,$x,$y)=rrdimage::rrdimage_update(%{$self->stash}, mode=>$mode, %{$entity});
 		$self->stash($mode => $self->url_for($self->stash("imgloc")."/$imgname")->to_string);
