@@ -1,0 +1,74 @@
+#!/usr/bin/perl
+#   $Id$
+# 
+#   File:		sync_rra
+#   Date:		09 Jul 2022 14:28:26
+#   Author:		Alexander Zangerl <az@snafu.priv.at>
+# 
+#   Abstract:
+#	   add missing RRAs, fix up row definitions
+#
+use strict;
+use RRDs;
+use Data::Dumper;
+use List::Util;
+
+my @wanted = qw(RRA:AVERAGE:0.5:1:17280 RRA:MIN:0.5:1:17280 RRA:MAX:0.5:1:17280 RRA:AVERAGE:0.5:6:8784 RRA:MIN:0.5:6:8784 RRA:MAX:0.5:6:8784 RRA:AVERAGE:0.5:24:8400 RRA:MIN:0.5:24:8400 RRA:MAX:0.5:24:8400 RRA:AVERAGE:0.5:144:6000 RRA:MIN:0.5:144:6000  RRA:MAX:0.5:144:6000);
+
+for my $file (@ARGV)
+{
+	print "handling $file....\n";
+	
+	my $ri = RRDs::info($file);
+
+	my %have;											# index -> struct, later signature
+	for (grep(/^rra/, keys %$ri))
+	{
+		my ($where,$what,$value) = (split(/\./,$_,2),$ri->{$_});
+		$where =~ s/^rra\[(\d+)\]$/$1/;
+		if ($what =~ /^(cf|xff|pdp_per_row|rows)$/)
+		{
+			$have{$where} //= {};
+			$have{$where}->{$what} = $value;
+		}
+	}
+	%have = map { ($_ => join(":","RRA",@{$have{$_}}{qw(cf xff pdp_per_row rows)})) } (keys %have);
+#	print Dumper(\%have);
+
+	my (%covered,@tuneargs);
+	for my $rrdix (sort keys %have)
+	{
+		my $sig = $have{$rrdix};
+		(my $rowless = $sig) =~  s/:\d+$/:/;
+		# rra exists exactly as desired?
+		# exists but different row count?
+		# doesn't exist?
+
+		if (defined(my $idx = List::Util::first { $sig eq $wanted[$_]} (0..$#wanted)))
+		{
+			print "$rrdix is already present: $sig vs $wanted[$idx]\n";
+			$covered{$idx} = 1;
+		}
+		elsif (defined(my $idx = List::Util::first { $wanted[$_] =~ qr/^$rowless/ } (0..$#wanted)))
+		{
+			(my $wantrows = $wanted[$idx]) =~ s/^.+:(\d+)$/$1/;
+			print "$rrdix needs row fixed to $wantrows: $sig vs $wanted[$idx]\n";
+			$covered{$idx} = 1;
+			push @tuneargs, "RRA#$rrdix:=$wantrows";
+		}
+	}
+	for my $missing (map { ($covered{$_}? () : $wanted[$_]) } (0..$#wanted))
+	{
+		print "missing: $missing\n";
+		push @tuneargs, $missing;
+	}
+	if (@tuneargs)
+	{
+		if (!RRDs::tune($file,@tuneargs))
+		{
+			die "failed to tune $file, args ".join(" ",@tuneargs)."!\n";
+		}
+	}
+
+	print "done with $file\n";
+}
