@@ -181,7 +181,7 @@ COMMENT:\n'));
       # needs extra arg: @disks (list of tags, used as labels)
       my @disks=split(/\s+/,$extras->{disks});
       my $maxlen=length((sort { length($b) <=> length($a) } (@disks))[0]);
-      my @colors=qw(ff4500 ffa500 ffd700 32cd32 4169e1 9370db);
+      my @colors=qw(ff4500 ffa500 ffd700 32cd32 4169e1 9370db 87CEFA);
       push @rrdargs,(qw(-u 100 --rigid -l 0),"-v","util %");
 
       for my $i (0..$#disks)
@@ -218,7 +218,7 @@ COMMENT:\n'));
 
       my $maxlen=length((sort { length($b) <=> length($a) } (@labels,"cpu","case"))[0]);
       my @colors=qw(ffd700 ff8c00 b22222 FF1493); # disks
-      my @fcolors=qw(ff00ff 008000 ac3973); # fans
+      my @fcolors=qw(ff00ff 008000 ac3973 66CDAA); # fans
 
       push @rrdargs,(qw(-u 60 -l 25),"-v","deg C");
       if ($extras->{fanscale})
