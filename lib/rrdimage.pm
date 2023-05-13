@@ -44,7 +44,8 @@ sub rrdimage_update
                   "mail"=>"maillog",
                   "mailrej"=>"maillog",
                   "growatt"=>"growatt",
-									"sungrow"=>"sungrow",
+                  "sungrow"=>"sungrow",
+                  "sungrow2"=>"sungrow",
         );
 
     my $rrdf="$args{rrddir}/$args{name}-".$type2tag{$args{type}}.".rrd";
@@ -63,7 +64,14 @@ sub rrdimage_update
       my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday)=localtime;
 
       push @rrdargs,qw(-h 200 -w 600 -s);
-      if ($args{mode} eq "day")
+
+      if ($args{mode} eq "recent")
+      {
+        push @rrdargs,(-7*3600,qw(-x MINUTE:15:HOUR:1:MINUTE:30:0:%-H:%M),
+                       'VRULE:'.(time-$sec-$min*60-$hour*3600).'#ff0000',
+                       'VRULE:'.(time-$sec-$min*60-$hour*3600-86400).'#ff0000');
+      }
+      elsif ($args{mode} eq "day")
       {
         # axis legend yucky by default
         push @rrdargs,(-30*3600,qw(-x HOUR:1:HOUR:6:HOUR:2:0:%-H),
@@ -208,10 +216,10 @@ COMMENT:\n'));
     {
       # extra args: cpu=>"cpuX cpuY", board=>"ds ds",
       #  disks=>"ds ds" fanscale=>N,
-			# fans=>"ds ds" labels=>"label \t label \t" (disks, dann fans)
+      # fans=>"ds ds" labels=>"label \t label \t" (disks, dann fans)
       # cpufront=>0/1 (draw board temp then cpu, for board>cpu)
       # fanpercent=>0/1 (rpm or percent)
-			# gpu => "ds"
+      # gpu => "ds"
       my @labels=split(/\t/,$extras->{labels});
       my @fans=split(/\s+/,$extras->{fans});
       my @disks=split(/\s+/,$extras->{disks});
@@ -319,8 +327,8 @@ COMMENT:\n'));
                        "GPRINT:tgpu:AVERAGE:avg\\: %4.1lf",
                        "GPRINT:tgpu:LAST:cur\\: %4.1lf deg",
                        'COMMENT:\n');
-			}
-			# finally, fans
+      }
+      # finally, fans
       for my $i (0..$#fans)
       {
         my $l=shift @labels;
@@ -641,7 +649,7 @@ LINE:axis#808080:
                      'COMMENT:\n',
       );
     }
-		elsif ($args{type} eq "sungrow")
+    elsif ($args{type} eq "sungrow")
     {
       my $rightscale=1/200.0;
       # attention: month and year mode require a MAX rra!
@@ -679,6 +687,55 @@ LINE:axis#808080:
                      'GPRINT:relev:MAX:    max\: %6.1lf deg',
                      'COMMENT:\n',
       );
+    }
+    # sungrow details
+    elsif ($args{type} eq "sungrow2")
+    {
+      my $rightscale=1/25.0;
+      push @rrdargs,(qw(-v Volt --right-axis),$rightscale.":0",
+                     qw(--right-axis-label Ampere --right-axis-format %3.1lf),
+
+                     "DEF:pv1vraw=$rrdf:pv1voltage:AVERAGE",
+                     "DEF:pv2vraw=$rrdf:pv2voltage:AVERAGE",
+
+                     "LINE1:pv1vraw#008000:#one voltage",
+                     'GPRINT:pv1vraw:MAX:  max\: %6.1lf',
+                     'GPRINT:pv1vraw:AVERAGE:avg\: %6.1lf',
+                     'GPRINT:pv1vraw:LAST:now\: %6.1lf V',
+                     'COMMENT:\n',
+
+                     "LINE1:pv2vraw#9ACD32:#two voltage",
+                     'GPRINT:pv2vraw:MAX:  max\: %6.1lf',
+                     'GPRINT:pv2vraw:AVERAGE:avg\: %6.1lf',
+                     'GPRINT:pv2vraw:LAST:now\: %6.1lf V',
+                     'COMMENT:\n',
+
+
+                     "DEF:pv1araw=$rrdf:pv1current:AVERAGE",
+                     "CDEF:pv1asc=pv1araw,".(1/$rightscale).",*",
+                     "DEF:pv2araw=$rrdf:pv2current:AVERAGE",
+                     "CDEF:pv2asc=pv2araw,".(1/$rightscale).",*",
+
+
+                     "LINE1:pv1asc#9400D3:#one current",
+                     'GPRINT:pv1araw:MAX:  max\: %6.1lf',
+                     'GPRINT:pv1araw:AVERAGE:avg\: %6.1lf',
+                     'GPRINT:pv1araw:LAST:now\: %6.1lf A',
+                     'COMMENT:\n',
+
+                     "LINE1:pv2asc#1E90FF:#two current",
+                     'GPRINT:pv2araw:MAX:  max\: %6.1lf',
+                     'GPRINT:pv2araw:AVERAGE:avg\: %6.1lf',
+                     'GPRINT:pv2araw:LAST:now\: %6.1lf A',
+                     'COMMENT:\n',
+
+
+                     "DEF:temp=$rrdf:temp:AVERAGE",
+                     "LINE1:temp#FF8C00:temperature",
+                     'GPRINT:temp:MAX:  max\: %6.1lf',
+                     'GPRINT:temp:AVERAGE:avg\: %6.1lf',
+                     'GPRINT:temp:LAST:now\: %6.1lf °C',
+                     'COMMENT:\n');
     }
 
     @rrdargs=grep(!/^(G?PRINT|COMMENT)/i, @rrdargs)
