@@ -10,6 +10,7 @@ use Getopt::Std;
 use IO::Socket::INET;
 use Math::Trig;
 use Device::Modbus::TCP::Client;
+use Crypt::Rijndael;
 use POSIX qw(strftime);
 
 my %opts;
@@ -22,7 +23,7 @@ my ($cf)=YAML::Syck::LoadFile($cfgfile);
 my $saved;
 if (-f $cf->{persistfile} && !$opts{w})
 {
-	($saved)=YAML::Syck::LoadFile($cf->{persistfile});
+  ($saved)=YAML::Syck::LoadFile($cf->{persistfile});
 }
 my $socket;
 
@@ -35,109 +36,109 @@ my $socket;
 #  es_reset: 400 errored seconds for resetting
 if (my $x=$cf->{sources}->{speedtouch})
 {
-	my $uname=$x->{username};
-	my $firmware=$x->{firmware};
+  my $uname=$x->{username};
+  my $firmware=$x->{firmware};
 
-	my $t=Net::Telnet->new(Timeout=>10,
-												 Prompt=>"/\{$uname\}=>/");
-	$t->errmode("return");
-	# $t->dump_log(*STDOUT);
+  my $t=Net::Telnet->new(Timeout=>10,
+                         Prompt=>"/\{$uname\}=>/");
+  $t->errmode("return");
+  # $t->dump_log(*STDOUT);
 
-	{
-		if (!$t->open($x->{host}))
-		{
+  {
+    if (!$t->open($x->{host}))
+    {
       warn "can't connect to ".$x->{host}.": ".$t->errmsg()."\n";
       last;
-		}
-		if (!$t->login($uname,$x->{pwd}))
-		{
+    }
+    if (!$t->login($uname,$x->{pwd}))
+    {
       warn "can't login on host ".$x->{host}.": ".$t->errmsg()."\n";
       last;
-		}
+    }
 
-		my $cmd=($firmware==6?":adsl info":":xdsl info expand=enabled counter_period_filter=current");
-		my @info=$t->cmd($cmd);
-		my @traffic=$t->cmd(":ip iflist");
-		my $uptime;
-		for ($t->cmd(":system settime"))
-		{
+    my $cmd=($firmware==6?":adsl info":":xdsl info expand=enabled counter_period_filter=current");
+    my @info=$t->cmd($cmd);
+    my @traffic=$t->cmd(":ip iflist");
+    my $uptime;
+    for ($t->cmd(":system settime"))
+    {
       if (/^uptime = (\d+) days, (\d+):(\d+):(\d+)$/)
       {
-				$uptime=$1*86400+$2*3600+$3*60+$4;
-				last;
+        $uptime=$1*86400+$2*3600+$3*60+$4;
+        last;
       }
-		}
-		my $rollover=$uptime<=300?undef:4294967295; # make sure we don't add 4g if the box just rebooted
+    }
+    my $rollover=$uptime<=300?undef:4294967295; # make sure we don't add 4g if the box just rebooted
 
-		my ($resets,$errorsecs,$syncdown,$syncup,$margdn,$margup,$up,$down,@esecs);
-		for my $l (@info)
-		{
+    my ($resets,$errorsecs,$syncdown,$syncup,$margdn,$margup,$up,$down,@esecs);
+    for my $l (@info)
+    {
       if ($l=~/^\s*Number of resets?\s*:\s+(\d+)\s*$/)
       {
-				$resets=$1;
+        $resets=$1;
       }
       # for firmware 7
       elsif ($firmware==7 && $l=~/^\s*Error second \(ES\):\s*(\d+)\s*$/)
       {
-				$errorsecs=$1;
+        $errorsecs=$1;
       }
       # for firmware 6
       elsif ($firmware==6 && $l=~/^\s*Errored seconds:\s*(\d+)\s*seconds?\s*$/)
       {
-				push @esecs,$1;
+        push @esecs,$1;
       }
       # firmware 7
       elsif ($firmware==7 && $l=~/^\s*Payload rate \[kbps\]:\s+(\d+)\s+(\d+)\s*$/)
       {
-				($syncdown,$syncup)=($1,$2);
+        ($syncdown,$syncup)=($1,$2);
       }
       # firmware 6
       elsif ($firmware==6 && $l=~/^\s*(Up|Down)stream\s*:\s*\d+\s+(\d+)\s*$/)
       {
-				my ($which,$value)=($1,$2);
-				my $target=$which eq "Up"?\$syncup:\$syncdown;
-				$$target=$value;
+        my ($which,$value)=($1,$2);
+        my $target=$which eq "Up"?\$syncup:\$syncdown;
+        $$target=$value;
       }
       elsif ($l=~/^\s*Margins?\s*\[dB\]\s*:\s+(\d+\.\d+)\s+(\d+\.\d+)\s*$/)
       {
-				($margdn,$margup)=($1,$2);
+        ($margdn,$margup)=($1,$2);
       }
-		}
-		for my $l (@traffic)
-		{
+    }
+    for my $l (@traffic)
+    {
       if ($l=~/wan\s+\d+\s+(\d+)\s+(\d+)/)
       {
-				($down,$up)=($1,$2);
-				last;
+        ($down,$up)=($1,$2);
+        last;
       }
-		}
+    }
 
-		# firmware 6: esecs[1] is the most interesting one = last 15min
-		$errorsecs=$esecs[1] if ($firmware==6);
+    # firmware 6: esecs[1] is the most interesting one = last 15min
+    $errorsecs=$esecs[1] if ($firmware==6);
 
-		if (defined $x->{es_reset} && $errorsecs >= $x->{es_reset}) # fw 6: out of 15min=900seconds
-		{
+    if (defined $x->{es_reset} && $errorsecs >= $x->{es_reset}) # fw 6: out of 15min=900seconds
+    {
       # line appears stuffed, trigger a dsl resync
       $t->print(":adsl config status down");
       $t->print(":adsl config status up");
-		}
-		$t->close;
-		$saved->{dsl}||={};
-		if ($opts{w})
-		{
+    }
+    $t->close;
+    $saved->{dsl}||={};
+    if ($opts{w})
+    {
       printcreate("dsl","resets:errorsecs:downsync:upsync:downmargin:upmargin:down:up",
-									qw(GAUGE GAUGE GAUGE GAUGE GAUGE:100 GAUGE:100 ABSOLUTE ABSOLUTE))
-		}
-		else
-		{
+                  qw(GAUGE GAUGE GAUGE GAUGE GAUGE:100 GAUGE:100 ABSOLUTE ABSOLUTE))
+    }
+    else
+    {
       # sync is in kbps,
       submit("dsl",
-						 "resets:errorsecs:downsync:upsync:downmargin:upmargin:down:up",
-						 $resets,$errorsecs,$syncdown*1000,$syncup*1000,$margdn,$margup,
-						 updatedelta($saved->{dsl},'down',$down,$rollover),
-						 updatedelta($saved->{dsl},'up',$up,$rollover));
-		}
-	}
+             "resets:errorsecs:downsync:upsync:downmargin:upmargin:down:up",
+             $resets,$errorsecs,$syncdown*1000,$syncup*1000,$margdn,$margup,
+             updatedelta($saved->{dsl},'down',$down,$rollover),
+             updatedelta($saved->{dsl},'up',$up,$rollover));
+    }
+  }
 }
 
 # read dsl stats from tp-link td-8817, via telnet (*sigh* - the snmp isn't exposing any of those)
@@ -147,93 +148,93 @@ if (my $x=$cf->{sources}->{speedtouch})
 #  host:
 if (my $x=$cf->{sources}->{dsl})
 {
-	my $t=Net::Telnet->new(Timeout=>10,
-												 Prompt=>'/[a-zA-Z0-9_ -]+> $/');
-	$t->errmode("return");
-	# $t->dump_log(*STDOUT);
+  my $t=Net::Telnet->new(Timeout=>10,
+                         Prompt=>'/[a-zA-Z0-9_ -]+> $/');
+  $t->errmode("return");
+  # $t->dump_log(*STDOUT);
 
-	{
-		if (!$t->open($x->{host}))
-		{
+  {
+    if (!$t->open($x->{host}))
+    {
       warn "can't connect to ".$x->{host}.": ".$t->errmsg()."\n";
       last;
-		}
-		if (!$t->waitfor('/Password:\s+/') or !$t->print($x->{pwd}))
-		{
+    }
+    if (!$t->waitfor('/Password:\s+/') or !$t->print($x->{pwd}))
+    {
       warn "can't login on host ".$x->{host}.": ".$t->errmsg()."\n";
       last;
-		}
-		if (!$t->waitfor($t->prompt))
-		{
+    }
+    if (!$t->waitfor($t->prompt))
+    {
       warn "no prompt seen on ".$x->{host}.": ".$t->errmsg()."\n";
       last;
-		}
+    }
 
-		my @lineinfo = $t->cmd("wan adsl chandata") # for speed
-				or warn "chandata failed: ".$t->errmsg()."\n";
+    my @lineinfo = $t->cmd("wan adsl chandata") # for speed
+        or warn "chandata failed: ".$t->errmsg()."\n";
 
-		push @lineinfo, $t->cmd("wan adsl linedata near") # for snr and margin
-				or warn "linedata near failed: ".$t->errmsg()."\n";
+    push @lineinfo, $t->cmd("wan adsl linedata near") # for snr and margin
+        or warn "linedata near failed: ".$t->errmsg()."\n";
 
-		push @lineinfo, $t->cmd("wan adsl linedata far")
-				or warn "linedata far failed: ".$t->errmsg()."\n";
+    push @lineinfo, $t->cmd("wan adsl linedata far")
+        or warn "linedata far failed: ".$t->errmsg()."\n";
 
-		push @lineinfo, $t->cmd("wan adsl perfdata") # for error seconds and uptime
-				or warn "perfdata failed: ".$t->errmsg()."\n";
-		push @lineinfo, $t->cmd("wan hwsar disp") # for in and out pkts
-				or warn "hwsar failed: ".$t->errmsg()."\n";
+    push @lineinfo, $t->cmd("wan adsl perfdata") # for error seconds and uptime
+        or warn "perfdata failed: ".$t->errmsg()."\n";
+    push @lineinfo, $t->cmd("wan hwsar disp") # for in and out pkts
+        or warn "hwsar failed: ".$t->errmsg()."\n";
 
-		my ($resets,$errorsecs,$syncdown,$syncup,$margdn,$margup,$up,$down,$uptime);
-		for my $l (@lineinfo)
-		{
+    my ($resets,$errorsecs,$syncdown,$syncup,$margdn,$margup,$up,$down,$uptime);
+    for my $l (@lineinfo)
+    {
       if ($l =~ /^(far|near)-end (fast|interleaved) channel bit rate: (\d+) kbps$/)
       {
-				my ($which, $val) = ($1, $3);
-				next if ($val eq "0"); # modem shows both fast and interleaved
-				my $target = $which eq "far"? \$syncup: \$syncdown;
-				$$target = $val;
+        my ($which, $val) = ($1, $3);
+        next if ($val eq "0"); # modem shows both fast and interleaved
+        my $target = $which eq "far"? \$syncup: \$syncdown;
+        $$target = $val;
       }
       elsif ($l =~ /^noise margin (downstream|upstream): (\d+\.\d+) db$/)
       {
-				my ($which, $val) = ($1, $2);
-				my $target = $which eq "downstream"? \$margdn: \$margup;
-				$$target = $val;
+        my ($which, $val) = ($1, $2);
+        my $target = $which eq "downstream"? \$margdn: \$margup;
+        $$target = $val;
       }
       elsif ($l =~ /^ADSL uptime\s+(\d+):(\d+):(\d+)$/)
       {
-				$uptime = $1 * 3600 + $2 * 60 + $3;
+        $uptime = $1 * 3600 + $2 * 60 + $3;
       }
       elsif ($l =~ /Error second in 15min\s+:\s+(\d+)$/)
       {
-				$errorsecs = $1;
+        $errorsecs = $1;
       }
       elsif ($l =~ /^(in|out)Pkts\s+=\s+(0x[0-9a-f]+),/)
       {
-				my ($which, $val) = ($1, $2);
-				my $target = $which eq "in"? \$down: \$up;
-				$$target = hex($val);
+        my ($which, $val) = ($1, $2);
+        my $target = $which eq "in"? \$down: \$up;
+        $$target = hex($val);
       }
-		}
+    }
 
-		my $rollover=$uptime<=300?undef:4294967295; # make sure we don't add 4g if the box just rebooted
+    my $rollover=$uptime<=300?undef:4294967295; # make sure we don't add 4g if the box just rebooted
 
-		$t->close;
-		$saved->{dsl}||={};
-		if ($opts{w})
-		{
+    $t->close;
+    $saved->{dsl}||={};
+    if ($opts{w})
+    {
       printcreate("dsl","resets:errorsecs:downsync:upsync:downmargin:upmargin:down:up",
-									qw(GAUGE GAUGE GAUGE GAUGE GAUGE:100 GAUGE:100 ABSOLUTE ABSOLUTE))
-		}
-		else
-		{
+                  qw(GAUGE GAUGE GAUGE GAUGE GAUGE:100 GAUGE:100 ABSOLUTE ABSOLUTE))
+    }
+    else
+    {
       # sync is in kbps
       submit("dsl",
-						 "resets:errorsecs:downsync:upsync:downmargin:upmargin:down:up",
-						 $resets,$errorsecs,$syncdown*1000,$syncup*1000,$margdn,$margup,
-						 updatedelta($saved->{dsl},'down',$down,$rollover),
-						 updatedelta($saved->{dsl},'up',$up,$rollover));
-		}
-	}
+             "resets:errorsecs:downsync:upsync:downmargin:upmargin:down:up",
+             $resets,$errorsecs,$syncdown*1000,$syncup*1000,$margdn,$margup,
+             updatedelta($saved->{dsl},'down',$down,$rollover),
+             updatedelta($saved->{dsl},'up',$up,$rollover));
+    }
+  }
 }
 
 # internode adsl usage, in MB
@@ -243,32 +244,32 @@ if (my $x=$cf->{sources}->{dsl})
 #  pwd:
 if (my $x=$cf->{sources}->{internode})
 {
-	my $host="customer-webtools-api.internode.on.net";
-	my $url="https://$host/api/v1.5/".$x->{serviceid}."/usage";
+  my $host="customer-webtools-api.internode.on.net";
+  my $url="https://$host/api/v1.5/".$x->{serviceid}."/usage";
 
-	my $ua=LWP::UserAgent->new();
-	$ua->timeout(10);
-	$ua->credentials("$host:443","internode-api",$x->{username},$x->{pwd});
-	my $r=$ua->get($url);
-	my $text=$r->content;
+  my $ua=LWP::UserAgent->new();
+  $ua->timeout(10);
+  $ua->credentials("$host:443","internode-api",$x->{username},$x->{pwd});
+  my $r=$ua->get($url);
+  my $text=$r->content;
 
-	if ($opts{w})
-	{
-		printcreate("internode","quota:traffic",
-								qw(GAUGE GAUGE));
-	}
-	else
-	{
-		# yucky xml!
-		# <internode><api><service type="Personal_ADSL" request="usage">1636306</service>
-		# <traffic name="total" rollover="2011-05-07" plan-interval="Monthly" quota="60000000000"
-		#unit="bytes">25554902564</traffic></api></internode
-		if ($r->is_success && $text=~m!quota="(\d+)".*>(\d+)</traffic>!s)
-		{
+  if ($opts{w})
+  {
+    printcreate("internode","quota:traffic",
+                qw(GAUGE GAUGE));
+  }
+  else
+  {
+    # yucky xml!
+    # <internode><api><service type="Personal_ADSL" request="usage">1636306</service>
+    # <traffic name="total" rollover="2011-05-07" plan-interval="Monthly" quota="60000000000"
+    #unit="bytes">25554902564</traffic></api></internode
+    if ($r->is_success && $text=~m!quota="(\d+)".*>(\d+)</traffic>!s)
+    {
       submit("internode",
-						 "quota:traffic",$1,$2);
-		}
-	}
+             "quota:traffic",$1,$2);
+    }
+  }
 }
 
 # temperature sensors: sensors, hddtemp, also fan speeds
@@ -280,129 +281,129 @@ if (my $x=$cf->{sources}->{internode})
 #   fanmain: Sys fan
 if (my $x=$cf->{sources}->{sensors})
 {
-	$x->{hddtemp}||=();
-	my (@readings,@names);
-	# disk temperature via hddtemp -n
-	for my $label (keys %{$x->{hddtemp}})
-	{
-		my $device=$x->{hddtemp}->{$label};
-		my $temp=`/usr/sbin/hddtemp -qn $device`;
-		chomp $temp;
-		$temp='U' if (!$temp);
-		push @names,$label;
-		push @readings,$temp;
-	}
+  $x->{hddtemp}||=();
+  my (@readings,@names);
+  # disk temperature via hddtemp -n
+  for my $label (keys %{$x->{hddtemp}})
+  {
+    my $device=$x->{hddtemp}->{$label};
+    my $temp=`/usr/sbin/hddtemp -qn $device`;
+    chomp $temp;
+    $temp='U' if (!$temp);
+    push @names,$label;
+    push @readings,$temp;
+  }
 
-	$x->{sensors}||=();
-	my @rawinput=$x->{hpsensors}?
-			`hpasmcli -s "show temp;show fan"`:`sensors 2>/dev/null`;
-	for my $l (@rawinput)
-	{
-		chomp $l;
-		if ($x->{hpsensors}?
-				$l=~/^#\d+\s+(\S+)\s+(?|(\d+)C|\S+\s+\S+\s+(\d+)%)/:
-				$l=~/^(\S[^:]+)\s*:\s*[+-]?(\d+\.\d+|\d+)/i)
-		{
+  $x->{sensors}||=();
+  my @rawinput=$x->{hpsensors}?
+      `hpasmcli -s "show temp;show fan"`:`sensors 2>/dev/null`;
+  for my $l (@rawinput)
+  {
+    chomp $l;
+    if ($x->{hpsensors}?
+        $l=~/^#\d+\s+(\S+)\s+(?|(\d+)C|\S+\s+\S+\s+(\d+)%)/:
+        $l=~/^(\S[^:]+)\s*:\s*[+-]?(\d+\.\d+|\d+)/i)
+    {
       my ($label,$value)=($1,$2);
       my @match=grep($label eq $x->{sensors}->{$_}, keys %{$x->{sensors}});
       die "sensortemp matches ambiguous\n" if (@match>1);
       if (@match)
       {
-				push @names,$match[0];
-				push @readings,$value;
+        push @names,$match[0];
+        push @readings,$value;
       }
-		}
-	}
-	if ($opts{w})
-	{
-		printcreate("sensors",join(":",@names),
-								("GAUGE") x (@names));
-	}
-	else
-	{
-		submit("sensors",join(":",@names),@readings);
-	}
+    }
+  }
+  if ($opts{w})
+  {
+    printcreate("sensors",join(":",@names),
+                ("GAUGE") x (@names));
+  }
+  else
+  {
+    submit("sensors",join(":",@names),@readings);
+  }
 }
 
 # cpu stats, value 1
 if ($cf->{sources}->{cpustats})
 {
-	open(F,"/proc/stat") or die "can't open /proc/stat: $!\n";
-	my ($cpuline)=grep(/^cpu\s+/, <F>);
-	close F;
-	my (undef,$user,$nice,$system,$idle,$io,$irq,
-			$int,$steal,$guest,$guestnice)=split(/\s+/,$cpuline);
+  open(F,"/proc/stat") or die "can't open /proc/stat: $!\n";
+  my ($cpuline)=grep(/^cpu\s+/, <F>);
+  close F;
+  my (undef,$user,$nice,$system,$idle,$io,$irq,
+      $int,$steal,$guest,$guestnice)=split(/\s+/,$cpuline);
 
-	open(F,"/proc/loadavg") or die "can't open /proc/loadavg: $!\n";
-	my ($now,$five,$fifteen,$nproc)=split(/\s+/,<F>);
-	close F;
-	$nproc=~s!\d+/!!;
+  open(F,"/proc/loadavg") or die "can't open /proc/loadavg: $!\n";
+  my ($now,$five,$fifteen,$nproc)=split(/\s+/,<F>);
+  close F;
+  $nproc=~s!\d+/!!;
 
-	if ($opts{w})
-	{
-		printcreate("cpustats","user:nice:system:idle:one:five:fifteen:nproc",
-								("COUNTER") x 4,("GAUGE") x 4);
-	}
-	else
-	{
-		submit("cpustats","user:nice:system:idle:one:five:fifteen:nproc",
-					 $user,$nice,$system+$io+$irq+$int+$steal,$idle,$now,$five,$fifteen,$nproc);
-	}
+  if ($opts{w})
+  {
+    printcreate("cpustats","user:nice:system:idle:one:five:fifteen:nproc",
+                ("COUNTER") x 4,("GAUGE") x 4);
+  }
+  else
+  {
+    submit("cpustats","user:nice:system:idle:one:five:fifteen:nproc",
+           $user,$nice,$system+$io+$irq+$int+$steal,$idle,$now,$five,$fifteen,$nproc);
+  }
 }
 
 # memory info, value 1
 if ($cf->{sources}->{meminfo})
 {
-	open(F,"/proc/meminfo") or die "cant open meminfo: $!\n";
-	my (@max,@values,%data);
-	foreach my $line (<F>)
-	{
-		if ($line =~ /^((Mem|Swap)(Total|Free)|Buffers|Cached):\s+(\d+)\s+kB/)
-		{
+  open(F,"/proc/meminfo") or die "cant open meminfo: $!\n";
+  my (@max,@values,%data);
+  foreach my $line (<F>)
+  {
+    if ($line =~ /^((Mem|Swap)(Total|Free)|Buffers|Cached):\s+(\d+)\s+kB/)
+    {
       $data{$1}=$4*1024;
-		}
-	}
-	close F;
-	if ($opts{w})
-	{
-		printcreate("memory","used:free:cached:buffers:swap",
-								("GAUGE") x 5);
-	}
-	else
-	{
-		submit("memory","used:free:cached:buffers:swap",
-					 $data{MemTotal}-$data{MemFree}-$data{Buffers}-$data{Cached},
-					 $data{MemFree},
-					 $data{Cached},$data{Buffers},$data{SwapTotal}-$data{SwapFree});
-	}
+    }
+  }
+  close F;
+  if ($opts{w})
+  {
+    printcreate("memory","used:free:cached:buffers:swap",
+                ("GAUGE") x 5);
+  }
+  else
+  {
+    submit("memory","used:free:cached:buffers:swap",
+           $data{MemTotal}-$data{MemFree}-$data{Buffers}-$data{Cached},
+           $data{MemFree},
+           $data{Cached},$data{Buffers},$data{SwapTotal}-$data{SwapFree});
+  }
 }
 
 #   disks:
 #    nameX: /mount/point
 if (my $x=$cf->{sources}->{disks})
 {
-	# disk blocks (current and total)
-	my (@labels,@vals);
-	for my $label (keys %{$x})
-	{
-		my $fs=$x->{$label};
-		my $data=`/usr/bin/stat -f $fs`;
-		my $blocksize;
-		$blocksize=$1 if $data=~/Block size:\s+(\d+)/;
-		my ($max,$used);
-		$data=~/Blocks: Total:\s+(\d+)\s+Free:\s+(\d+)/ && (($max,$used)=($1,$1-$2));
-		push @labels,"${label}_t","${label}_u";
-		push @vals,$max*$blocksize,$used*$blocksize;
-	}
-	if ($opts{w})
-	{
-		printcreate("disks",join(":",@labels),
-								("GAUGE") x @labels);
-	}
-	else
-	{
-		submit("disks",join(":",@labels),@vals);
-	}
+  # disk blocks (current and total)
+  my (@labels,@vals);
+  for my $label (keys %{$x})
+  {
+    my $fs=$x->{$label};
+    my $data=`/usr/bin/stat -f $fs`;
+    my $blocksize;
+    $blocksize=$1 if $data=~/Block size:\s+(\d+)/;
+    my ($max,$used);
+    $data=~/Blocks: Total:\s+(\d+)\s+Free:\s+(\d+)/ && (($max,$used)=($1,$1-$2));
+    push @labels,"${label}_t","${label}_u";
+    push @vals,$max*$blocksize,$used*$blocksize;
+  }
+  if ($opts{w})
+  {
+    printcreate("disks",join(":",@labels),
+                ("GAUGE") x @labels);
+  }
+  else
+  {
+    submit("disks",join(":",@labels),@vals);
+  }
 }
 
 # interface accounting by nfacct (as that works fine across ipv4 and 6)
@@ -411,40 +412,40 @@ if (my $x=$cf->{sources}->{disks})
 #  label: otheracctobj
 if (my $x=$cf->{sources}->{nfacct})
 {
-	my (@labels,@vals);
-	$saved->{nfacct}||={};
+  my (@labels,@vals);
+  $saved->{nfacct}||={};
 
-	# reads and zeros the counters
-	my @rawdata=``;
-	my %seen;
-	open(F,"/usr/sbin/nfacct list reset|") or die "can't fork nfacct: $!\n";
-	while(<F>)
-	{
-		if (/\{\s*pkts\s*=\s*\d+,\s*bytes\s*=\s*0*(\d+)\s*\}\s*=\s*(\S+);/)
-		{
+  # reads and zeros the counters
+  my @rawdata=``;
+  my %seen;
+  open(F,"/usr/sbin/nfacct list reset|") or die "can't fork nfacct: $!\n";
+  while(<F>)
+  {
+    if (/\{\s*pkts\s*=\s*\d+,\s*bytes\s*=\s*0*(\d+)\s*\}\s*=\s*(\S+);/)
+    {
       $seen{$2}=int$1;
-		}
-	}
-	close(F);
+    }
+  }
+  close(F);
 
-	for my $label (sort keys %{$x})
-	{
-		my $target=$x->{$label};
-		if (exists $seen{$x->{$label}})
-		{
+  for my $label (sort keys %{$x})
+  {
+    my $target=$x->{$label};
+    if (exists $seen{$x->{$label}})
+    {
       push @labels,$label;
       push @vals,$seen{$x->{$label}};
-		}
-	}
-	if ($opts{w})
-	{
-		printcreate("nfacct",join(":",@labels),
-								("ABSOLUTE") x @labels);
-	}
-	else
-	{
-		submit("nfacct",join(":",@labels),@vals) if (@labels);
-	}
+    }
+  }
+  if ($opts{w})
+  {
+    printcreate("nfacct",join(":",@labels),
+                ("ABSOLUTE") x @labels);
+  }
+  else
+  {
+    submit("nfacct",join(":",@labels),@vals) if (@labels);
+  }
 }
 
 
@@ -454,31 +455,31 @@ if (my $x=$cf->{sources}->{nfacct})
 #  logdrop: DROP
 if (my $x=$cf->{sources}->{iptables})
 {
-	my (@labels,@vals);
-	$saved->{iptables}||={};
-	for my $label (keys %{$x})
-	{
-		my $target=$x->{$label};
-		my $curval=0;
-		# read and then zero counters
-		open(F,"/sbin/iptables -vxnZ -L $label|") or die "can't fork iptables: $!\n";
-		while(<F>)
-		{
+  my (@labels,@vals);
+  $saved->{iptables}||={};
+  for my $label (keys %{$x})
+  {
+    my $target=$x->{$label};
+    my $curval=0;
+    # read and then zero counters
+    open(F,"/sbin/iptables -vxnZ -L $label|") or die "can't fork iptables: $!\n";
+    while(<F>)
+    {
       $curval+=$1 if (/^\s*\d+\s+(\d+)\s+$target/);
-		}
-		close F;
-		push @labels,$label;
-		push @vals,$curval;
-	}
-	if ($opts{w})
-	{
-		printcreate("iptables",join(":",@labels),
-								("ABSOLUTE") x @labels);
-	}
-	else
-	{
-		submit("iptables",join(":",@labels),@vals) if (@labels);
-	}
+    }
+    close F;
+    push @labels,$label;
+    push @vals,$curval;
+  }
+  if ($opts{w})
+  {
+    printcreate("iptables",join(":",@labels),
+                ("ABSOLUTE") x @labels);
+  }
+  else
+  {
+    submit("iptables",join(":",@labels),@vals) if (@labels);
+  }
 }
 
 # deprecated: use nfacct
@@ -488,65 +489,65 @@ if (my $x=$cf->{sources}->{iptables})
 # try the iptables acct-in/out chains first, otherwise fall back to /proc/net/dev (which is 32bit only)
 if (my $x=$cf->{sources}->{interfaces})
 {
-	use bignum;     # iptables counters are 64bit
-	my (@labels,@vals);
-	$saved->{interfaces}||={};
+  use bignum;     # iptables counters are 64bit
+  my (@labels,@vals);
+  $saved->{interfaces}||={};
 
-	# read and then zero counters
-	for my $direction (qw(in out))
-	{
-		open(F,"/sbin/iptables -vxnZ -L acct-$direction|") or die "can't fork iptables: $!\n";
-		for my $line (<F>)
-		{
+  # read and then zero counters
+  for my $direction (qw(in out))
+  {
+    open(F,"/sbin/iptables -vxnZ -L acct-$direction|") or die "can't fork iptables: $!\n";
+    for my $line (<F>)
+    {
       chomp $line;
       #       49    13377 RETURN     all  --  eth0   *       0.0.0.0/0            0.0.0.0/0
       if ($line=~/^\s*\d+\s+(\d+)\s+RETURN\s+all\s+--\s+(\S+)\s+(\S+)/)
       {
-				my ($bytes,$inif,$outif)=($1,$2,$3);
-				my $ifname=$direction eq "in"?$inif:$outif;
-				die "acct-$direction chain counts wrong direction!\n"
-						if ($ifname eq "*"); # can't use outbound bytes in inbound counting chain...
-				my @match=grep($ifname eq $x->{$_}, keys %{$x});
-				die "interface match ambiguous\n" if (@match>1);
-				next if (!@match);
-				push @labels,"$match[0]_".($direction eq "in"?"i":"o");
-				push @vals,$bytes;
+        my ($bytes,$inif,$outif)=($1,$2,$3);
+        my $ifname=$direction eq "in"?$inif:$outif;
+        die "acct-$direction chain counts wrong direction!\n"
+            if ($ifname eq "*"); # can't use outbound bytes in inbound counting chain...
+        my @match=grep($ifname eq $x->{$_}, keys %{$x});
+        die "interface match ambiguous\n" if (@match>1);
+        next if (!@match);
+        push @labels,"$match[0]_".($direction eq "in"?"i":"o");
+        push @vals,$bytes;
       }
-		}
-		close F;
-	}
+    }
+    close F;
+  }
 
-	# fallback iff needed
-	if (!@labels)
-	{
-		open(F,"/proc/net/dev") or die "cant open /proc/net/dev: $!\n";
-		foreach my $line (<F>)
-		{
+  # fallback iff needed
+  if (!@labels)
+  {
+    open(F,"/proc/net/dev") or die "cant open /proc/net/dev: $!\n";
+    foreach my $line (<F>)
+    {
       if ($line =~s/^\s*(\S+):\s*(\S.+)$/$2/)
       {
-				my $ifname=$1;
-				my @match=grep($ifname eq $x->{$_}, keys %{$x});
-				die "interface match ambiguous\n" if (@match>1);
-				next if (!@match);
-				my ($in,$out)=(split(/\s+/,$line))[0,8];
+        my $ifname=$1;
+        my @match=grep($ifname eq $x->{$_}, keys %{$x});
+        die "interface match ambiguous\n" if (@match>1);
+        next if (!@match);
+        my ($in,$out)=(split(/\s+/,$line))[0,8];
 
-				push @labels,"$match[0]_i","$match[0]_o";
-				push @vals,(updatedelta($saved->{interfaces},"${ifname}_i",$in,4294967295),
-										updatedelta($saved->{interfaces},"${ifname}_o",$out,4294967295));
+        push @labels,"$match[0]_i","$match[0]_o";
+        push @vals,(updatedelta($saved->{interfaces},"${ifname}_i",$in,4294967295),
+                    updatedelta($saved->{interfaces},"${ifname}_o",$out,4294967295));
       }
-		}
-		close F;
-	}
+    }
+    close F;
+  }
 
-	if ($opts{w})
-	{
-		printcreate("interfaces",join(":",@labels),
-								("ABSOLUTE") x @labels);
-	}
-	else
-	{
-		submit("interfaces",join(":",@labels),@vals) if (@labels);
-	}
+  if ($opts{w})
+  {
+    printcreate("interfaces",join(":",@labels),
+                ("ABSOLUTE") x @labels);
+  }
+  else
+  {
+    submit("interfaces",join(":",@labels),@vals) if (@labels);
+  }
 }
 
 # maillog: /path/to/logfile
@@ -592,35 +593,35 @@ if (my $logfile=$cf->{sources}->{maillog})
 # newslog: /path/to/newslog/news
 if (my $logfile=$cf->{sources}->{newslog})
 {
-	$saved->{newslog}||="0 0";
-	my ($in,$out,$refused)=(0) x 3;
-	for (logtail($logfile,\$saved->{newslog}))
-	{
-		if (/^\w+\s+\d+\s+\d+:\d+:\d+\.\d+\s+(\S)\s+\S+\s+<[^>]+>\s+\d+(\s+(.*))?$/)
-		{
+  $saved->{newslog}||="0 0";
+  my ($in,$out,$refused)=(0) x 3;
+  for (logtail($logfile,\$saved->{newslog}))
+  {
+    if (/^\w+\s+\d+\s+\d+:\d+:\d+\.\d+\s+(\S)\s+\S+\s+<[^>]+>\s+\d+(\s+(.*))?$/)
+    {
       my ($status,$cand)=($1,$3);
 
       if ($status eq '-')
       {
-				$refused++;
+        $refused++;
       }
       elsif ($status =~ /^[j+c]$/)
       {
-				$in++;
-				my @all=split(/\s+/,$cand);
-				$out+=@all;
+        $in++;
+        my @all=split(/\s+/,$cand);
+        $out+=@all;
       }
-		}
-	}
-	if ($opts{w})
-	{
-		printcreate("newslog","in:out:refused",
-								("ABSOLUTE") x 3);
-	}
-	else
-	{
-		submit("newslog","in:out:refused",$in,$out,$refused);
-	}
+    }
+  }
+  if ($opts{w})
+  {
+    printcreate("newslog","in:out:refused",
+                ("ABSOLUTE") x 3);
+  }
+  else
+  {
+    submit("newslog","in:out:refused",$in,$out,$refused);
+  }
 }
 
 # growatt:
@@ -628,166 +629,114 @@ if (my $logfile=$cf->{sources}->{newslog})
 #  invaddress: number
 if (my $gw=$cf->{sources}->{growatt})
 {
-	if ($opts{w})
-	{
-		printcreate("growatt","isofault:gcfifault:dcifault:pvvoltfault:gridvoltfault:gridfreqfault:tempfault:"
-								."hrstotal:etotal:etoday:pvvolt:gridvolt:gridfreq:gridamp:gridpower:temp:",
-								("COUNTER") x 7, ("GAUGE") x 9);
-	}
-	else
-	{
-		my $invaddr=$gw->{invaddress};
-		my $port=$gw->{device};
+  if ($opts{w})
+  {
+    printcreate("growatt","isofault:gcfifault:dcifault:pvvoltfault:gridvoltfault:gridfreqfault:tempfault:"
+                ."hrstotal:etotal:etoday:pvvolt:gridvolt:gridfreq:gridamp:gridpower:temp:",
+                ("COUNTER") x 7, ("GAUGE") x 9);
+  }
+  else
+  {
+    my $invaddr=$gw->{invaddress};
+    my $port=$gw->{device};
 
-		# startup: prep the serial port
-		# cheapest to do it via stty; termios from perl sucks
-		# note: must disable all the echo stuff!
-		die "stty failed: $!\n" if (0xffff & system("stty","-F",$port,
-																								qw(9600 raw cs8 -cstopb -parenb -parodd -crtscts
+    # startup: prep the serial port
+    # cheapest to do it via stty; termios from perl sucks
+    # note: must disable all the echo stuff!
+    die "stty failed: $!\n" if (0xffff & system("stty","-F",$port,
+                                                qw(9600 raw cs8 -cstopb -parenb -parodd -crtscts
             -hup -onlcr -echo -echoe -echok -ctlecho)));
-		open(F,"+<",$port) or die "can't open device $port: $!\n";
-		binmode(F);
+    open(F,"+<",$port) or die "can't open device $port: $!\n";
+    binmode(F);
 
-		# gimme serial: anybody home?
-		my @res=sendrecv(0x3f,0x23,0x7e,0x32,0x53,0);
-		if (@res>1)
-		{
+    # gimme serial: anybody home?
+    my @res=sendrecv(0x3f,0x23,0x7e,0x32,0x53,0);
+    if (@res>1)
+    {
       die "address doesn't match up, got $res[2] but expected $invaddr\n"
-					if ($res[2] ne $invaddr);
+          if ($res[2] ne $invaddr);
 
       my %status=(&readinv($invaddr,0),&readinv($invaddr,1));
       close(F);
 
       if (%status)
       {
-				submit("growatt","etotal:hrstotal:isofault:gcfifault:dcifault:pvvoltfault:gridvoltfault:gridfreqfault:tempfault:"
-							 ."etoday:pvvolt:gridvolt:gridfreq:gridamp:gridpower:temp",
-							 @status{qw(etotal hrstotal isofault gcfifault dcifault pvvoltfault gridvoltfault
+        submit("growatt","etotal:hrstotal:isofault:gcfifault:dcifault:pvvoltfault:gridvoltfault:gridfreqfault:tempfault:"
+               ."etoday:pvvolt:gridvolt:gridfreq:gridamp:gridpower:temp",
+               @status{qw(etotal hrstotal isofault gcfifault dcifault pvvoltfault gridvoltfault
          gridfreqfault tempfault etoday pvvolt1 gridvolt gridfreq gridamp
          gridpower temp)});
       }
-		}
-	}
+    }
+  }
 }
 
 # sungrow:
 #  address: dns or ip
 #  port: 502 (optional)
 #  unit: 1 (optional)
-#  username: req'd
-#  password: req'd
 if (my $sg=$cf->{sources}->{sungrow})
 {
-	my @things = qw(etoday etotal temp pv1voltage pv1current pv2voltage pv2current
+  my @things = qw(etoday etotal temp pv1voltage pv1current pv2voltage pv2current
 dcpower acvoltage accurrent activepower status);
 
-	if ($opts{w})
-	{
-		printcreate("sungrow", join(":",@things), ("GAUGE") x (scalar @things));
-	}
-	else
-	{
-		# first, connect to the web interface to check that the config is
-		# as 'safe' as it can get...these devices reset most settings on power-up AND leak your wifi psk.
-		my $sgaddress = $sg->{address};
-    my $setupurl = "http://$sgaddress/parameter.cgi";
-    my $reseturl = "http://$sgaddress/manage.cgi";
-
-    my $ua = LWP::UserAgent->new;
-    $ua->timeout(2);            # don't wait too long
-    $ua->credentials("$sgaddress:80", "RAK LOGIN", $sg->{username}, $sg->{pwd});
-    my $setup = $ua->get($setupurl);
-
-    if (!$setup->is_success)
+  if ($opts{w})
+  {
+    printcreate("sungrow", join(":",@things), ("GAUGE") x (scalar @things));
+  }
+  else
+  {
+    # mangled some seriously superfluous crypto, oh my
+    # however, sniffing plus reverse engineering FTW...thanks go to rpvelloso
+    my $response = eval { mangle_request(host => $sg->{address},
+                                         port => $sg->{port}//502,
+                                         request => Device::Modbus::Client->read_input_registers(
+                                           unit => $sg->{unit}//1,
+                                           # the register lists are off by one, for whatever reason
+                                           address => 5003-1,
+                                           quantity => 5081-5003+1)); };
+    if ($@ or !$response->success)
     {
-      debug("sungrow web interface not reachable, can't do anything further");
+      debug("modbus request failed: ". ($@ || $response->message));
     }
     else
     {
-      my $nothtml = $setup->decoded_content; # claims html, no cte
-      if ($nothtml =~ /wlan_mode=2/)            # unsafe
+      my $raw = pack("n*",@{$response->values}); # having N 16-bit values is nearly useless
+      my %sgdata;
+
+      # 5003 etoday 5004 etotal 5008 temp 5011 pv1volt 5012 pv1current 5013 pv2volt 5014 pv2current
+      # 5017 dcpower 5019 acvoltage 5022 accurrent 5031 activepower 5081 status
+      @sgdata{@things} = unpack("nnx6s>x4nnnnx4nx2nx4nx16nx98n",$raw);
+      for my $scaleme (qw(etoday temp pv1voltage pv1current pv2voltage pv2current acvoltage accurrent))
       {
-        debug("sungrow web interface is reachable, config is unsafe - fixing it up");
-        my $fixmeup = $ua->post($setupurl, [ wlan_mode => 0, # only station, no wide-open access point
-                                             socketB_destip => "127.0.0.1", # do not phone home
-                                             socketC_destip => "127.0.0.1",
-                                             socketD_destip => "127.0.0.1",
-                                             socketB_type => 1, # really really really do not phone home
-                                             socketC_type => 1,
-                                             socketD_type => 1,
-                                             local_find_en => 0, # and don't bother with multicast dns either
-                                ]);
-        if ($fixmeup->is_success)
-        {
-          # now activate the parameters with a softreset
-          my $finish = $ua->get($reseturl);
-          debug("sungrow soft reset done:".$finish->status_line);
-        }
-        else
-        {
-          debug("sungrow fix up request failed: ".$fixmeup->status_line);
-				}
-			}
-			else
-			{
-				debug("sungrow web interface is reachable and config is as safe as it'll ever be");
+        $sgdata{$scaleme} /= 10;
+      }
 
-				# now make the modbus request
-				my $conn = Device::Modbus::TCP::Client->new(host => $sgaddress);
-				my $req = $conn->read_input_registers(unit => 1,
-																							address => 5003-1, # apparently the register lists are off by one
-																							quantity => 5081-5003+1);
-				my $response;
-				eval { $conn->send_request($req); }; # throws an exception if no connectivity
-				if (!$@)
-				{
-					$response = $conn->receive_response;
-				}
-				if ($@ or !$response->success)
-				{
-					debug("modbus request failed: ".$@ || $response->message);
-				}
-				else
-				{
-					my $raw = pack("n*",@{$response->values}); # having N 16-bit values is unwieldy
-					my %sgdata;
+      my %states = (  1 => "running",
+                      2 => "normal stop",
+                      4 => "initial standby",
+                      8 => "key stop",
+                      16 => "normal standby",
+                      32 => "emergency stop",
+                      64 => "normal startup",
+                      128 => "normal standby",
+                      512 => "fault stop",
+                      1024 => "warn running",
+                      2048 => "derating",
+                      4096 => "limit operation",
+                      8192 => "comms fault",
+                      65536 => "normal standby",
+                      131072 => "normal standby",
+                      262144 => "normal standby" );
+      debug(sprintf("sungrow reported: energy today %.1f kwh\nenergy total %d kwh\ntemp %.1f degc\npv1 %.1f V %.1f A\npv2 %.1f V %.1f A\ndc power %d W\nac %.1f V %.1f A\nactivepower %d W\nstatus %s\n",
+                    @sgdata{qw(etoday etotal temp pv1voltage pv1current pv2voltage pv2current dcpower acvoltage accurrent activepower)},
+                    $states{$sgdata{status}} // "Unknown"));
 
-					# 5003 etoday 5004 etotal 5008 temp 5011 pv1volt 5012 pv1current 5013 pv2volt 5014 pv2current
-					# 5017 dcpower 5019 acvoltage 5022 accurrent 5031 activepower 5081 status
-					@sgdata{@things} = unpack("nnx6s>x4nnnnx4nx2nx4nx16nx98n",$raw);
-					for my $scaleme (qw(etoday temp pv1voltage pv1current pv2voltage pv2current acvoltage accurrent))
-					{
-						$sgdata{$scaleme} /= 10;
-					}
-
-					my %states = (  1 => "running",
-													2 => "normal stop",
-													4 => "initial standby",
-													8 => "key stop",
-													16 => "normal standby",
-													32 => "emergency stop",
-													64 => "normal startup",
-													128 => "normal standby",
-													512 => "fault stop",
-													1024 => "warn running",
-													2048 => "derating",
-													4096 => "limit operation",
-													8192 => "comms fault",
-													65536 => "normal standby",
-													131072 => "normal standby",
-													262144 => "normal standby" );
-					debug(sprintf("sungrow reported: energy today %.1f kwh\nenergy total %d kwh\ntemp %.1f degc\npv1 %.1f V %.1f A\npv2 %.1f V %.1f A\ndc power %d W\nac %.1f V %.1f A\nactivepower %d W\nstatus %s\n",
-								@sgdata{qw(etoday etotal temp pv1voltage pv1current pv2voltage pv2current dcpower acvoltage accurrent activepower)},
-								$states{$sgdata{status}} // "Unknown"));
-
-					submit("sungrow", join(":",@things),
-								 @sgdata{@things});
-				}
-			}
-		}
-	}
+      submit("sungrow", join(":",@things),
+             @sgdata{@things});
+    }
+  }
 }
-
 
 
 
@@ -799,11 +748,11 @@ dcpower acvoltage accurrent activepower status);
 #   othername: /other/path
 if (my $x=$cf->{sources}->{filereader})
 {
-	for my $rrdname (keys %{$x})
-	{
-		my (@vals,@labels);
-		for my $label (keys %{$x->{$rrdname}})
-		{
+  for my $rrdname (keys %{$x})
+  {
+    my (@vals,@labels);
+    for my $label (keys %{$x->{$rrdname}})
+    {
       my $fn=$x->{$rrdname}->{$label};
       open(F,$fn) or die "can't open $fn: $!\n";
       my $val=<F>;  # one line, no fuss
@@ -811,16 +760,16 @@ if (my $x=$cf->{sources}->{filereader})
       chomp($val);
       push @vals,$val;
       push @labels,$label;
-		}
-		if ($opts{w})
-		{
+    }
+    if ($opts{w})
+    {
       print "sorry, no params for automatic creation of filereader sources a/v.\n";
-		}
-		else
-		{
+    }
+    else
+    {
       submit($rrdname,join(":",@labels),@vals);
-		}
-	}
+    }
+  }
 }
 
 # sun_elevation:
@@ -828,30 +777,30 @@ if (my $x=$cf->{sources}->{filereader})
 #  lon: in deg
 if (my $sun=$cf->{sources}->{sun_elevation})
 {
-	my $rrdname="sun_elevation";
-	if ($opts{w})
-	{
-		printcreate($rrdname,"elevation","GAUGE");
-	}
-	else
-	{
-		my $lat=$sun->{lat};
-		my $lon=$sun->{lon};
+  my $rrdname="sun_elevation";
+  if ($opts{w})
+  {
+    printcreate($rrdname,"elevation","GAUGE");
+  }
+  else
+  {
+    my $lat=$sun->{lat};
+    my $lon=$sun->{lon};
 
-		my @when=localtime;
-		my ($hours,$min,$yday)=@when[2,1,7];
-		$yday++;      # starts at zero, approx expects 1..366
-		my $tz=strftime("%z",@when)/100;
+    my @when=localtime;
+    my ($hours,$min,$yday)=@when[2,1,7];
+    $yday++;      # starts at zero, approx expects 1..366
+    my $tz=strftime("%z",@when)/100;
 
-		my $sundecl=deg2rad(-23.44*cos(deg2rad(360.0/365.0*($yday+10))));
-		my $ctime=$hours+($min/60.0)+$lon/15.0-$tz;
-		my $hangle=15*(12-$ctime);
+    my $sundecl=deg2rad(-23.44*cos(deg2rad(360.0/365.0*($yday+10))));
+    my $ctime=$hours+($min/60.0)+$lon/15.0-$tz;
+    my $hangle=15*(12-$ctime);
 
-		submit($rrdname,"elevation",
-					 rad2deg(asin_real(sin(deg2rad($lat))*sin($sundecl)
-														 +cos(deg2rad($lat))*cos($sundecl)
-														 *cos(deg2rad($hangle)))));
-	}
+    submit($rrdname,"elevation",
+           rad2deg(asin_real(sin(deg2rad($lat))*sin($sundecl)
+                             +cos(deg2rad($lat))*cos($sundecl)
+                             *cos(deg2rad($hangle)))));
+  }
 }
 
 
@@ -866,102 +815,102 @@ exit 0;
 # returns 0 if ok, rrdupdate error code otherwise
 sub submit
 {
-	my ($rrdname,$dstemplate,@values)=@_;
-	my $response;
+  my ($rrdname,$dstemplate,@values)=@_;
+  my $response;
 
 
-	# network scenario first
-	if ($cf->{daemonhost} && $cf->{daemonport})
-	{
-		# try to open a socket
-		if (!$socket && !$opts{s})
-		{
-			$socket=IO::Socket::INET->new(PeerAddr=>$cf->{daemonhost},
-																		PeerPort=>$cf->{daemonport},
-																		Proto=>"tcp",
-																		Timeout=>5);
-			while ($socket && !$socket->atmark)
-			{
-				$response=<$socket>;
-			}
-		}
+  # network scenario first
+  if ($cf->{daemonhost} && $cf->{daemonport})
+  {
+    # try to open a socket
+    if (!$socket && !$opts{s})
+    {
+      $socket=IO::Socket::INET->new(PeerAddr=>$cf->{daemonhost},
+                                    PeerPort=>$cf->{daemonport},
+                                    Proto=>"tcp",
+                                    Timeout=>5);
+      while ($socket && !$socket->atmark)
+      {
+        $response=<$socket>;
+      }
+    }
 
-		if (!$socket)
-		{
-			# park stuff in storage until the server comes back
+    if (!$socket)
+    {
+      # park stuff in storage until the server comes back
       push @{$saved->{tempstorage}->{$rrdname}},
-			[ $dstemplate, time.":".join(":", map { defined $_? $_: "U" } (@values)) ];
-			return 0;
-		}
+      [ $dstemplate, time.":".join(":", map { defined $_? $_: "U" } (@values)) ];
+      return 0;
+    }
 
-		my @sendthis;
-		# first try to submit all past saved stuff; ds templates may be different!
-		if ($saved->{tempstorage}->{$rrdname})
-		{
-			push @sendthis, map {
-				"update ".$cf->{rrddir}."/".$cf->{rrdprefix}.$rrdname.".rrd -t "
-						. $_->[0] . " ". $_->[1] } (@{$saved->{tempstorage}->{$rrdname}});
-			delete $saved->{tempstorage}->{$rrdname};
-		}
-		# then include the current stuff
-		push @sendthis, "update ".$cf->{rrddir}."/".$cf->{rrdprefix}.$rrdname.".rrd -t "
-				.$dstemplate." ". "N:". join(":", map { defined $_? $_: "U" } (@values));
+    my @sendthis;
+    # first try to submit all past saved stuff; ds templates may be different!
+    if ($saved->{tempstorage}->{$rrdname})
+    {
+      push @sendthis, map {
+        "update ".$cf->{rrddir}."/".$cf->{rrdprefix}.$rrdname.".rrd -t "
+            . $_->[0] . " ". $_->[1] } (@{$saved->{tempstorage}->{$rrdname}});
+      delete $saved->{tempstorage}->{$rrdname};
+    }
+    # then include the current stuff
+    push @sendthis, "update ".$cf->{rrddir}."/".$cf->{rrdprefix}.$rrdname.".rrd -t "
+        .$dstemplate." ". "N:". join(":", map { defined $_? $_: "U" } (@values));
 
-		if ($opts{s})
-		{
-			print join("\n",@sendthis)."\n";
-		}
-		else
-		{
-			for my $cmd (@sendthis)
-			{
-				print $socket "$cmd\n";
-				$response=<$socket>;
-				chomp $response;
-				if ($response!~/^OK/)
-				{
-					print "remote command \"$cmd\" failed: \"$response\"\n";
-					return 1;
-				}
-			}
-		}
-	}
-	else
-	{
-		my $cmd = "rrdtool update ".$cf->{rrddir}."/".$cf->{rrdprefix}.$rrdname.".rrd -t "
-				.$dstemplate." ". "N:". join(":", map { defined $_? $_: "U" } (@values));
+    if ($opts{s})
+    {
+      print join("\n",@sendthis)."\n";
+    }
+    else
+    {
+      for my $cmd (@sendthis)
+      {
+        print $socket "$cmd\n";
+        $response=<$socket>;
+        chomp $response;
+        if ($response!~/^OK/)
+        {
+          print "remote command \"$cmd\" failed: \"$response\"\n";
+          return 1;
+        }
+      }
+    }
+  }
+  else
+  {
+    my $cmd = "rrdtool update ".$cf->{rrddir}."/".$cf->{rrdprefix}.$rrdname.".rrd -t "
+        .$dstemplate." ". "N:". join(":", map { defined $_? $_: "U" } (@values));
 
-		if ($opts{s})
-		{
-			print "$cmd\n";
-			return 0;
-		}
+    if ($opts{s})
+    {
+      print "$cmd\n";
+      return 0;
+    }
 
-		my $res=0xffff & system($cmd);
-		return $res;
-	}
+    my $res=0xffff & system($cmd);
+    return $res;
+  }
 }
 
 # print a create line that can be fed to rrdtool
 sub printcreate
 {
-	my ($rrdname,$dstemplate,@types)=@_;
+  my ($rrdname,$dstemplate,@types)=@_;
 
-	print "create line for $rrdname:\n";
+  print "create line for $rrdname:\n";
 
-	my $cmd="create ".$cf->{rrddir}."/".$cf->{rrdprefix}.$rrdname.".rrd ";
-	for my $d (split(/:/,$dstemplate))
-	{
-		my $type=shift @types;
-		my $max="U";
-		if ($type=~s/^(.+):(\d+)/$1/)
-		{
+  my $cmd="create ".$cf->{rrddir}."/".$cf->{rrdprefix}.$rrdname.".rrd ";
+  for my $d (split(/:/,$dstemplate))
+  {
+    my $type=shift @types;
+    my $max="U";
+    if ($type=~s/^(.+):(\d+)/$1/)
+    {
       $max=$2;
-		}
-		$cmd.="DS:$d:$type:".$cf->{heartbeat}.":0:$max ";
-	}
-	$cmd.=$cf->{rradefault};
-	print $cmd,"\n\n";
+    }
+    $cmd.="DS:$d:$type:".$cf->{heartbeat}.":0:$max ";
+  }
+  $cmd.=$cf->{rradefault};
+  print $cmd,"\n\n";
 }
 
 # compute delta with the saved value (if any)
@@ -969,20 +918,20 @@ sub printcreate
 # the optional max param is for dealing with wraps gracefully
 sub updatedelta
 {
-	my ($where,$key,$curval,$max)=@_;
-	my $delta=$curval-$where->{$key};
+  my ($where,$key,$curval,$max)=@_;
+  my $delta=$curval-$where->{$key};
 
-	if (!defined $where->{$key}) # first run?
-	{
-		$delta=0;
-	}
-	elsif ($where->{$key}>$curval) # counter wrapped?
-	{
-		$delta=$curval;
-		$delta+=($max-$where->{$key}) if (defined $max);
-	}
-	$where->{$key}=$curval;
-	return $delta;
+  if (!defined $where->{$key}) # first run?
+  {
+    $delta=0;
+  }
+  elsif ($where->{$key}>$curval) # counter wrapped?
+  {
+    $delta=$curval;
+    $delta+=($max-$where->{$key}) if (defined $max);
+  }
+  $where->{$key}=$curval;
+  return $delta;
 }
 
 
@@ -994,38 +943,38 @@ sub updatedelta
 # if the ino changes we start reading at the beginning
 sub logtail
 {
-	my @result;
-	my ($logfile,$or) = @_;
-	die "File $logfile cannot be read.\n" if (!open(LOGFILE, $logfile));
+  my @result;
+  my ($logfile,$or) = @_;
+  die "File $logfile cannot be read.\n" if (!open(LOGFILE, $logfile));
 
-	my ($ino, $size);
-	die "Cannot get $logfile file size.\n"
-			unless ((undef,$ino,undef,undef,undef,undef,undef,$size)
-							= stat $logfile);
-	my ($inode,$offset) = (0, 0);
+  my ($ino, $size);
+  die "Cannot get $logfile file size.\n"
+      unless ((undef,$ino,undef,undef,undef,undef,undef,$size)
+              = stat $logfile);
+  my ($inode,$offset) = (0, 0);
 
-	# first run without prior history? then start at the end
-	if (!defined $$or || $$or eq "0 0")
-	{
-		$$or="$ino $size";
-		return;
-	}
+  # first run without prior history? then start at the end
+  if (!defined $$or || $$or eq "0 0")
+  {
+    $$or="$ino $size";
+    return;
+  }
 
-	($inode,$offset)=split(/ /,$$or);
-	if ($inode == $ino)
-	{
-		return if $offset == $size; # short cut
-		$offset = 0 if ($offset > $size); #  no warning here
-	}
-	$offset = 0 if ($inode != $ino || $offset > $size);
+  ($inode,$offset)=split(/ /,$$or);
+  if ($inode == $ino)
+  {
+    return if $offset == $size; # short cut
+    $offset = 0 if ($offset > $size); #  no warning here
+  }
+  $offset = 0 if ($inode != $ino || $offset > $size);
 
-	seek(LOGFILE, $offset, 0);
-	@result=<LOGFILE>;
-	$size = tell LOGFILE;
-	close LOGFILE;
+  seek(LOGFILE, $offset, 0);
+  @result=<LOGFILE>;
+  $size = tell LOGFILE;
+  close LOGFILE;
 
-	$$or="$ino $size";
-	return @result;
+  $$or="$ino $size";
+  return @result;
 }
 
 
@@ -1035,121 +984,269 @@ sub logtail
 # output: response list of bytes - or nothing if the read didn't work out
 sub sendrecv
 {
-	my (@cmd)=@_;
-	my $timeout=5;
+  my (@cmd)=@_;
+  my $timeout=5;
 
-	my $cs=checksum(@cmd);
-	debug("cmd out: ".hexdump(@cmd,pack("n",$cs)));
-	my $out=pack("C".@cmd."n",@cmd,$cs);
-	my $wrote=syswrite(F,$out);
-	die "write to device failed, wrote $wrote bytes: $!\n" if ($wrote != @cmd+2);
+  my $cs=checksum(@cmd);
+  debug("cmd out: ".hexdump(@cmd,pack("n",$cs)));
+  my $out=pack("C".@cmd."n",@cmd,$cs);
+  my $wrote=syswrite(F,$out);
+  die "write to device failed, wrote $wrote bytes: $!\n" if ($wrote != @cmd+2);
 
-	# now try to read a response, but give it a little time before giving up
-	# format: 0x3f, 0x23, addr, c0 c1 dlen d0 .... dl-1 s0 s1
-	my ($read,$response);
-	eval {
-		local $SIG{ALRM} = sub { die "alarm\n" }; # NB: \n required
-		alarm($timeout);
-		$read=sysread(F,$response,6);
-		alarm 0;
-	};
-	die if ($@ and $@ ne "alarm\n");
-	if ($read!=6)
-	{
-		debug("no header reveived, read $read bytes\n");
-		return;
-	}
+  # now try to read a response, but give it a little time before giving up
+  # format: 0x3f, 0x23, addr, c0 c1 dlen d0 .... dl-1 s0 s1
+  my ($read,$response);
+  eval {
+    local $SIG{ALRM} = sub { die "alarm\n" }; # NB: \n required
+    alarm($timeout);
+    $read=sysread(F,$response,6);
+    alarm 0;
+  };
+  die if ($@ and $@ ne "alarm\n");
+  if ($read!=6)
+  {
+    debug("no header reveived, read $read bytes\n");
+    return;
+  }
 
-	# now read the rest: optional data and 2 checksum bytes
-	my @header=unpack("C*",$response);
-	if ($header[0] != 0x23 || $header[1] != 0x3f)
-	{
-		debug("header doesn't match response: got ".hexdump(@header));
-		return;
-	}
-	debug("received header: ".hexdump(@header));
-	my $toread=2+$header[5];
-	$response="";
-	while ($toread)
-	{
-		my $x;
-		my $read=sysread(F,$x,$toread);
-		die "couldn't read from device (wanted $toread): $!\n" if (!defined $read);
-		$toread-=$read;
-		$response.=$x;
-	}
-	my @result=unpack("C*",$response);
-	debug("received remainder: ".hexdump(@result));
-	$cs=checksum(@header,@result[0..($#result-2)]);
-	my $msgcs=($result[-2]<<8)+$result[-1];
-	debug(sprintf("warning: checksum should be %04x, got %04x!\n",$cs,$msgcs))
-			if ($cs != $msgcs);
-	return (@header,@result);
+  # now read the rest: optional data and 2 checksum bytes
+  my @header=unpack("C*",$response);
+  if ($header[0] != 0x23 || $header[1] != 0x3f)
+  {
+    debug("header doesn't match response: got ".hexdump(@header));
+    return;
+  }
+  debug("received header: ".hexdump(@header));
+  my $toread=2+$header[5];
+  $response="";
+  while ($toread)
+  {
+    my $x;
+    my $read=sysread(F,$x,$toread);
+    die "couldn't read from device (wanted $toread): $!\n" if (!defined $read);
+    $toread-=$read;
+    $response.=$x;
+  }
+  my @result=unpack("C*",$response);
+  debug("received remainder: ".hexdump(@result));
+  $cs=checksum(@header,@result[0..($#result-2)]);
+  my $msgcs=($result[-2]<<8)+$result[-1];
+  debug(sprintf("warning: checksum should be %04x, got %04x!\n",$cs,$msgcs))
+      if ($cs != $msgcs);
+  return (@header,@result);
 }
 
 # input: message as list of bytes
 # output: the checkup 16bit int.
 sub checksum
 {
-	my @tosend=@_;
-	my $sum=0;
-	for my $i (0..$#tosend)
-	{
-		$sum+=$tosend[$i]^$i;
-	}
-	$sum=0xffff if (!$sum or $sum>0xffff);
-	return $sum;
+  my @tosend=@_;
+  my $sum=0;
+  for my $i (0..$#tosend)
+  {
+    $sum+=$tosend[$i]^$i;
+  }
+  $sum=0xffff if (!$sum or $sum>0xffff);
+  return $sum;
 }
 
 sub hexdump
 {
-	return join(" ", map { sprintf("%02x",$_); } (@_));
+  return join(" ", map { sprintf("%02x",$_); } (@_));
+}
+
+sub one_hexdump
+{
+  my ($indata) = @_;
+  my @array = unpack('C*', $indata);
+  return join(" ", (map { sprintf("%2.2x", $_) } (@array)));
 }
 
 
 sub debug
 {
-	return if (!$ENV{DEBUG});
+  return if (!$ENV{DEBUG});
 
-	print STDERR @_;
-	print STDERR "\n" if ($_[$#_]!~/\n$/);
+  print STDERR @_;
+  print STDERR "\n" if ($_[$#_]!~/\n$/);
 }
 
 # talks to inverter, returns power or energy readings as hash
 sub readinv
 {
-	my ($invaddr,$wantenergy)=@_;
+  my ($invaddr,$wantenergy)=@_;
 
-	my @cmd=(0x3f,0x23,$invaddr,0x32,($wantenergy?0x42:0x41),0);
+  my @cmd=(0x3f,0x23,$invaddr,0x32,($wantenergy?0x42:0x41),0);
 
-	debug("reading ".($wantenergy?"energy\n":"power\n"));
-	my @res=sendrecv(@cmd);
-	my @d=@res[6..($#res-2)];
+  debug("reading ".($wantenergy?"energy\n":"power\n"));
+  my @res=sendrecv(@cmd);
+  my @d=@res[6..($#res-2)];
 
-	if ($wantenergy)
-	{
-		return (etoday=>(($d[7]<<8)+$d[8])/10.0,
-						etotal=>(($d[9]<<24)+($d[10]<<16)+($d[11]<<8)+$d[12])/10.0,
-						hrstotal=>(($d[13]<<24)+($d[14]<<16)+($d[15]<<8)+$d[16])/10.0);
-	}
-	else
-	{
-		return (status=>$d[0],
-						pvvolt1=>(($d[1]<<8)+$d[2])/10.0,
-						pvvolt2=>(($d[3]<<8)+$d[4])/10.0,
-						pvpower=>(($d[5]<<8)+$d[6])/10.0,
-						gridvolt=>(($d[7]<<8)+$d[8])/10.0,
-						gridamp=>(($d[9]<<8)+$d[10])/10.0,
-						gridfreq=>(($d[11]<<8)+$d[12])/100.0,
-						gridpower=>(($d[13]<<8)+$d[14])/10.0,
-						isofault=>(($d[15]<<8)+$d[16]),
-						gcfifault=>(($d[17]<<8)+$d[18]),
-						dcifault=>(($d[19]<<8)+$d[20]),
-						pvvoltfault=>(($d[21]<<8)+$d[22]),
-						gridvoltfault=>(($d[23]<<8)+$d[24]),
-						gridfreqfault=>(($d[25]<<8)+$d[26]),
-						tempfault=>(($d[27]<<8)+$d[28]),
-						faulttype=>(($d[29]<<8)+$d[30]),
-						temp=>(($d[31]<<8)+$d[32])/10.0);
-	}
+  if ($wantenergy)
+  {
+    return (etoday=>(($d[7]<<8)+$d[8])/10.0,
+            etotal=>(($d[9]<<24)+($d[10]<<16)+($d[11]<<8)+$d[12])/10.0,
+            hrstotal=>(($d[13]<<24)+($d[14]<<16)+($d[15]<<8)+$d[16])/10.0);
+  }
+  else
+  {
+    return (status=>$d[0],
+            pvvolt1=>(($d[1]<<8)+$d[2])/10.0,
+            pvvolt2=>(($d[3]<<8)+$d[4])/10.0,
+            pvpower=>(($d[5]<<8)+$d[6])/10.0,
+            gridvolt=>(($d[7]<<8)+$d[8])/10.0,
+            gridamp=>(($d[9]<<8)+$d[10])/10.0,
+            gridfreq=>(($d[11]<<8)+$d[12])/100.0,
+            gridpower=>(($d[13]<<8)+$d[14])/10.0,
+            isofault=>(($d[15]<<8)+$d[16]),
+            gcfifault=>(($d[17]<<8)+$d[18]),
+            dcifault=>(($d[19]<<8)+$d[20]),
+            pvvoltfault=>(($d[21]<<8)+$d[22]),
+            gridvoltfault=>(($d[23]<<8)+$d[24]),
+            gridfreqfault=>(($d[25]<<8)+$d[26]),
+            tempfault=>(($d[27]<<8)+$d[28]),
+            faulttype=>(($d[29]<<8)+$d[30]),
+            temp=>(($d[31]<<8)+$d[32])/10.0);
+  }
+}
+
+# i can't be bothered to properly subclass d::m::t, their
+# structure is very unpleasant, so this is a bit messy.
+sub mangle_request
+{
+  my (%args) = @_;
+
+  # open connection, determine crypto key
+  # connection only sockets things up, doesn't communicate
+  my $conn = Device::Modbus::TCP::Client->new(host => $args{host},
+                                              port => $args{port});
+
+  my $keyquery = "\x68\x68\x00\x00\x00\x06\xf7\x04\x0a\xe7\x00\x08";
+  my $sock = $conn->socket;
+  my $sent = $sock->send($keyquery);
+
+  die "send failure, only $sent bytes: $!\n" if ($sent != 12);
+  my $buffer;
+  my $isok = $sock->recv($buffer,25);
+  die "receive problem: $!\n" if (!defined $isok);
+
+  my $maybekey = substr($buffer,9);
+  $maybekey ^= "Grow#0*2Sun68CbE";
+
+  my $mangler = Crypt::Rijndael->new($maybekey,Crypt::Rijndael::MODE_ECB);
+  my $stashedtxid;
+
+  my $adubin = $conn->new_adu($args{request})->binary_message;
+  my $outlen = length($adubin);
+  my $padlen = 16 - ($outlen % 16);
+
+  # chop transaction id, replace by 0x68,0x68
+  $stashedtxid = substr($adubin,0,2);
+  $adubin = "\x68\x68".substr($adubin,2);
+  # pad with 0xff to 16 byte
+  my $payload = $adubin . join("",("\xff") x $padlen);
+  # encrypt and add header: 1,0,len,howmuchpadding
+  my $ep = pack("CCCC",1,0,$outlen,$padlen) . $mangler->encrypt($payload);
+
+  my $gone =  $sock->send($ep);
+  die "sent less than desired: $gone, $!\n" if ($gone != length($ep));
+
+  # send done, how about the response?
+
+  die "no header received: $!\n" if (!defined $sock->recv($buffer,4));
+
+  # receive len plus padlen bytes
+  my ($nn1,$nn2,$len,$padding) = unpack("CCCC",$buffer);
+  die "no packet received: $!\n" if (!defined $sock->recv($buffer,$len+$padding));
+
+  my $unmangled = $mangler->decrypt($buffer);
+  $unmangled = $stashedtxid . substr($unmangled,2,$len-2);
+
+  # inserting ourselves into device::modbus object hierarchy is a major PITA
+  my ($id, $proto, $length, $unit) = unpack('nnnC',$unmangled);
+  $unmangled = substr($unmangled,7);
+
+  my $adu = $conn->new_adu;
+  $adu->id($id);
+  $adu->length($length);
+  $adu->unit($unit);
+
+  # lifted from client::parse_pdu, which is hard to interface with
+  my $code = unpack("C",$unmangled);
+  $unmangled = substr($unmangled,1);
+
+  if ($code == 0x01 || $code == 0x02) {
+    # Read coils and discrete inputs
+    my ($byte_count) = unpack("C",$unmangled);
+    $unmangled = substr($unmangled,1);
+
+    die "Invalid byte count: <$byte_count>"
+        unless $byte_count > 0;
+
+    my @values = Device::Modbus->explode_bit_values(unpack('C*',$unmangled));
+    $unmangled = substr($unmangled,$byte_count);
+
+    $adu->message( Device::Modbus::Response->new(
+            code       => $code,
+            bytes      => $byte_count,
+            values     => \@values
+                   ));
+  }
+  elsif ($code == 0x03 || $code == 0x04 || $code == 0x17) {
+        # Read holding and input registers; read/write registers
+    my ($byte_count) = unpack('C',$unmangled);
+    $unmangled = substr($unmangled,1);
+
+    die "Invalid byte count: <$byte_count>"
+        unless $byte_count > 0 && $byte_count <= 250 && $byte_count % 2 == 0;
+
+    my @values       = unpack('n*',$unmangled);
+    $unmangled = substr($unmangled,$byte_count);
+
+    $adu->message( Device::Modbus::Response->new(
+                     code       => $code,
+                     bytes      => $byte_count,
+                     values     => \@values
+                   ));
+  }
+  elsif ($code == 0x05 || $code == 0x06) {
+    # Write single coil and single register
+    my ($address, $value) = unpack('nn',$unmangled);
+    $unmangled = substr($unmangled,4);
+
+    if ($code == 0x05) {
+      $value = 1 if $value;
+    }
+
+    $adu->message( Device::Modbus::Response->new(
+            code       => $code,
+            address    => $address,
+            value      => $value
+        ));
+    }
+    elsif ($code == 0x0F || $code == 0x10) {
+        # Write multiple coils, multiple registers
+      my ($address, $qty)   = unpack("nn",$unmangled);
+      $unmangled = substr($unmangled,4);
+
+      $adu->message( Device::Modbus::Response->new(
+            code       => $code,
+            address    => $address,
+            quantity   => $qty
+        ));
+    }
+    elsif (grep { $code == $_ } 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x8F, 0x90, 0x97) {
+      my ($exc_code) = unpack("C",$unmangled);
+      $unmangled = substr($unmangled,1);
+
+      $adu->message(Device::Modbus::Exception->new(
+            code           => $code,
+            exception_code => $exc_code
+        ));
+    }
+  else {
+    die "Unimplemented function: <$code>";
+  }
+
+  return $adu;
 }
